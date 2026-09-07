@@ -1,0 +1,11 @@
+[Unit]
+Description=SC8886 Battery Charger Init & Watchdog Disable
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/init-sc8886.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
