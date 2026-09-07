@@ -1,0 +1,2 @@
+# SC8886S hardware on Z96A: prevent bq25700 driver from binding 0x006b
+ACTION=="add", KERNEL=="0-006b", SUBSYSTEM=="i2c", ATTR{driver}=="bq25700_charger", RUN+="/bin/sh -c 'echo 0-006b > /sys/bus/i2c/drivers/bq25700_charger/unbind'"
