@@ -7540,6 +7540,7 @@ vcc3v3-lcd0-n {
         compatible = "regulator-fixed";
         regulator-name = "vcc3v3_lcd0_n";
         regulator-boot-on;
+        regulator-always-on;
         regulator-min-microvolt = <3300000>;
         regulator-max-microvolt = <3300000>;
         enable-active-high;
