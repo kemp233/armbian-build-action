@@ -743,6 +743,21 @@
 			polling-delay = <0x3e8>;
 			thermal-sensors = <0x1f 0x01>;
 			phandle = <0x154>;
+
+			trips {
+
+				gpu-alert0 {
+					temperature = <0x13880>;
+					hysteresis = <0x7d0>;
+					type = "passive";
+				};
+
+				gpu-crit {
+					temperature = <0x17318>;
+					hysteresis = <0x7d0>;
+					type = "critical";
+				};
+			};
 		};
 	};
 
@@ -1527,7 +1542,7 @@
 					};
 				};
 
-				DCDC_REG5 {
+				vcc_1v8: DCDC_REG5 {
 					regulator-always-on;
 					regulator-boot-on;
 					regulator-min-microvolt = <0x1b7740>;
@@ -3434,6 +3449,7 @@
 		cap-sd-highspeed;
 		cap-mmc-highspeed;
 		cap-sdio-irq;
+		vmmc-supply = <&vcc_1v8>;
 		keep-power-in-suspend;
 		mmc-pwrseq = <0xbc>;
 		non-removable;
