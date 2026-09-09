@@ -171,6 +171,114 @@ runs:
         # copy custom packages (including blobs)
         [[ -d custom/packages ]] && rsync -av custom/packages/. build/packages/
 
+    - name: "Compile rockchip-vaapi (mpp + librga + libva-rockchip)"
+      if: ${{ contains(inputs.armbian_extensions, 'rockchip-vaapi') }}
+      shell: bash
+      run: |
+        set -e
+        echo "::group::Install cross toolchain"
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            meson ninja-build cmake pkg-config \
+            libdrm-dev:arm64 libva-dev:arm64 \
+            qemu-user-static binfmt-support
+        sudo update-binfmts --enable qemu-aarch64
+        echo "::endgroup::"
+
+        STAGE="$GITHUB_WORKSPACE/build/output/rockchip-vaapi"
+        rm -rf "$STAGE"
+        mkdir -p "$STAGE/usr/lib/aarch64-linux-gnu/dri" "$STAGE/src"
+
+        cd "$STAGE/src"
+
+        # 1) Build Rockchip MPP (static for cross-compile simplicity)
+        echo "::group::Build mpp"
+        if [[ ! -d mpp ]]; then
+          git clone --depth 1 https://github.com/rockchip-linux/mpp.git
+        fi
+        cd mpp
+        mkdir -p build && cd build
+        cmake -DCMAKE_SYSTEM_NAME=Linux \
+              -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+              -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+              -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+              -DCMAKE_INSTALL_PREFIX=/usr \
+              -DCMAKE_INSTALL_LIBDIR=/usr/lib/aarch64-linux-gnu \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_TEST=OFF \
+              -DBUILD_SHARED_LIBS=ON .. 2>&1 | tail -5
+        make -j"$(nproc)" 2>&1 | tail -3
+        make DESTDIR="$STAGE" install 2>&1 | tail -3
+        cd ../..
+        echo "::endgroup::"
+
+        # 2) Build librga
+        echo "::group::Build librga"
+        if [[ ! -d librga ]]; then
+          git clone --depth 1 https://github.com/airockchip/librga.git
+        fi
+        cd librga
+        PKG_CONFIG_PATH="$STAGE/usr/lib/aarch64-linux-gnu/pkgconfig" \
+        meson setup build \
+            --prefix=/usr \
+            --libdir=lib/aarch64-linux-gnu \
+            --cross-file <(cat <<EOF
+[binaries]
+c = 'aarch64-linux-gnu-gcc'
+cpp = 'aarch64-linux-gnu-g++'
+ar = 'aarch64-linux-gnu-ar'
+strip = 'aarch64-linux-gnu-strip'
+pkgconfig = 'aarch64-linux-gnu-pkg-config'
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+EOF
+) 2>&1 | tail -5
+        ninja -C build 2>&1 | tail -3
+        DESTDIR="$STAGE" ninja -C build install 2>&1 | tail -3
+        cd ..
+        echo "::endgroup::"
+
+        # 3) Build libva-rockchip (the wrapper that produces rockchip_drv_video.so)
+        echo "::group::Build libva-rockchip"
+        if [[ ! -d libva-rockchip ]]; then
+          git clone --depth 1 https://github.com/jeffy-cn/libva-rockchip.git
+        fi
+        cd libva-rockchip
+        PKG_CONFIG_PATH="$STAGE/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig" \
+        meson setup build \
+            --prefix=/usr \
+            --libdir=lib/aarch64-linux-gnu \
+            --cross-file <(cat <<EOF
+[binaries]
+c = 'aarch64-linux-gnu-gcc'
+cpp = 'aarch64-linux-gnu-g++'
+ar = 'aarch64-linux-gnu-ar'
+strip = 'aarch64-linux-gnu-strip'
+pkgconfig = 'aarch64-linux-gnu-pkg-config'
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+[properties]
+rootprefix = '/usr'
+[built-in options]
+libdir = 'lib/aarch64-linux-gnu'
+EOF
+) 2>&1 | tail -5
+        ninja -C build 2>&1 | tail -3
+        DESTDIR="$STAGE" ninja -C build install 2>&1 | tail -3
+        cd ..
+        echo "::endgroup::"
+
+        echo "::group::Verify staged files"
+        find "$STAGE" -name '*.so*' -type f -o -name '*.so*' -type l | head -20
+        echo "::endgroup::"
+
     - shell: bash
       run: |
 

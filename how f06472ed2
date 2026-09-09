@@ -1,0 +1,46 @@
+[33mcommit fbfd83e69117c05b37798bf9be9d901bdb7a321f[m
+Author: openclaw-bot <bot@openclaw.local>
+Date:   Sat Sep 5 12:13:45 2026 +0800
+
+    z96a dt: free GPIO0_C1 from sdio-pwrseq, force vcc3v3_lcd0_n always-on (WiFi main power fix)
+    
+    Root cause of WiFi SDIO enumeration failure (Pin 36 VDD_3.3V = 0V,
+    measured by multimeter):
+    
+    sdio-pwrseq.pinctrl-0 referenced wifi-enable-h (GPIO0_C1/pin17),
+    which claims the pin as a GPIO function that the pwrseq driver
+    never drives. Meanwhile vcc3v3_lcd0_n uses the SAME pin as its
+    enable-active-high GPIO. Result: the 3.3V LDO enable pin floats,
+    WiFi module main power never comes up, CMD5 gets no response,
+    mmc2 gives up and WL_REG_ON (gpio-16) stays low.
+    
+    Fix:
+    1. Remove pinctrl-names/pinctrl-0 from sdio-pwrseq. The pwrseq
+       driver only needs reset-gpios (gpio-16); it never touches C1.
+    2. Add regulator-always-on to vcc3v3_lcd0_n so the 3.3V LDO is
+       force-enabled regardless of boot sequencing.
+    
+    Verified safe4 baseline retained: sc8886 disabled, OTP clock-names,
+    battery okay, dwmmc normal/idle pinctrl, gpu-thermal trips.
+
+[1mdiff --git a/patch/kernel/rockchip-rk3568-z96a/legacy/dt/rk3568-z96a-laptop-v2.dts b/patch/kernel/rockchip-rk3568-z96a/legacy/dt/rk3568-z96a-laptop-v2.dts[m
+[1mindex 38dc88666..e30a73c69 100644[m
+[1m--- a/patch/kernel/rockchip-rk3568-z96a/legacy/dt/rk3568-z96a-laptop-v2.dts[m
+[1m+++ b/patch/kernel/rockchip-rk3568-z96a/legacy/dt/rk3568-z96a-laptop-v2.dts[m
+[36m@@ -7417,8 +7417,6 @@[m
+ 		compatible = "mmc-pwrseq-simple";[m
+ 		clocks = <0x137 0x01>;[m
+ 		clock-names = "ext_clock";[m
+[31m-		pinctrl-names = "default";[m
+[31m-		pinctrl-0 = <0x138>;[m
+ 		reset-gpios = <0x41 0x10 0x01>;[m
+ 		phandle = <0xbc>;[m
+ 	};[m
+[36m@@ -7523,6 +7521,7 @@[m
+ 		compatible = "regulator-fixed";[m
+ 		regulator-name = "vcc3v3_lcd0_n";[m
+ 		regulator-boot-on;[m
+[32m+[m		[32mregulator-always-on;[m
+ 		regulator-min-microvolt = <0x325aa0>;[m
+ 		regulator-max-microvolt = <0x325aa0>;[m
+ 		enable-active-high;[m
