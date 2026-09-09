@@ -123,9 +123,16 @@ runs:
     - name: "Prepare customisations (from current repo)"
       shell: bash
       run: |
-        # The current repo is already checked out at the workspace root
-        # Copy it to custom/ for the existing rsync logic
-        cp -r "${GITHUB_WORKSPACE}" custom
+        # The current repo is already checked out at the workspace root by GitHub Actions
+        # Copy relevant directories to custom/ for the existing rsync logic
+        mkdir -p custom
+        for dir in config patch packages extensions blobs; do
+          if [[ -d "$dir" ]]; then
+            cp -r "$dir" custom/
+          fi
+        done
+        # Also copy userpatches if exists
+        [[ -d userpatches ]] && cp -r userpatches custom/
 
     - shell: bash
       run: |
