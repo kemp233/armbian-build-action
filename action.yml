@@ -133,6 +133,21 @@ runs:
         clean: false
         path: custom
 
+    # actions/checkout@v4 defaults to sparse-checkout cone-mode, which on
+    # this repo doesn't reliably materialise all files under custom/
+    # (z96a-v2.conf, rockchip-multimedia.sh, rk35 blobs all vanish from the
+    # worktree). Disable sparse-checkout and re-read the index so the rsync
+    # steps below see every file at HEAD. read-tree -m -u is the safe way
+    # to expand the worktree after turning sparse-checkout off without
+    # touching HEAD's commit.
+    - name: "Force full custom checkout (disable sparse-checkout)"
+      shell: bash
+      run: |
+        if [[ -d custom/.git ]]; then
+          git -C custom -c core.quotepath=false sparse-checkout disable || true
+          git -C custom read-tree -m -u HEAD 2>&1 | tail -5
+        fi
+
     - shell: bash
       run: |
 
