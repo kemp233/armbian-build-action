@@ -157,6 +157,12 @@ runs:
         [[ -d custom/config/sources ]] && rsync -av custom/config/sources/. build/config/sources/
         # copy custom patches
         [[ -d custom/patch ]] && rsync -av custom/patch/. build/patch/
+        # copy custom blobs (board-specific TPL/BL31 etc.) to build/packages so
+        # family hooks like pre_config_uboot_target__z96a_install_ddr_and_fix_map
+        # can find them at ${SRC}/packages/blobs/...
+        [[ -d custom/packages ]] && rsync -av custom/packages/. build/packages/
+        # copy custom optional board drop-ins (udev rules, services, ...)
+        [[ -d custom/config/optional ]] && rsync -av custom/config/optional/. build/config/optional/
         # copy custom lib overrides (for build framework fixes that need
         # to be in momokind/armbian-build's lib/, e.g. rootfs/debootstrap
         # keyring workarounds). Only files present in custom/lib/ are
