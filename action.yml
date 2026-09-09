@@ -118,6 +118,7 @@ runs:
         clean: false
         path: os
         sparse-checkout: false
+        sparse-checkout-cone-mode: false
 
     - name: "Checkout Armbian build framework"
       uses: actions/checkout@v4
@@ -126,6 +127,8 @@ runs:
         fetch-depth: 0
         clean: false
         path: build
+        sparse-checkout: false
+        sparse-checkout-cone-mode: false
 
     - name: "Checkout customisations"
       uses: actions/checkout@v4
@@ -134,6 +137,7 @@ runs:
         clean: false
         path: custom
         sparse-checkout: false
+        sparse-checkout-cone-mode: false
 
     - shell: bash
       run: |
