@@ -210,23 +210,8 @@ runs:
           git clone --depth 1 https://github.com/airockchip/librga.git
         fi
         cd librga
-        cat <<'EOF' > /tmp/rockchip-vaapi-rga-cross.txt
-[binaries]
-c = 'aarch64-linux-gnu-gcc'
-cpp = 'aarch64-linux-gnu-g++'
-ar = 'aarch64-linux-gnu-ar'
-strip = 'aarch64-linux-gnu-strip'
-pkgconfig = 'aarch64-linux-gnu-pkg-config'
-[host_machine]
-system = 'linux'
-cpu_family = 'aarch64'
-cpu = 'aarch64'
-endian = 'little'
-EOF
-        meson setup build --prefix=/usr --libdir=lib/aarch64-linux-gnu \
-            --cross-file /tmp/rockchip-vaapi-rga-cross.txt 2>&1 | tail -5
-        ninja -C build 2>&1 | tail -3
-        ninja -C build install 2>&1 | tail -3
+        CROSS_RGA_B64='W2JpbmFyaWVzXQpjID0gJ2FhcmNoNjQtbGludXgtZ251LWdjYycKY3BwID0gJ2FhcmNoNjQtbGludXgtZ251LWcrKycKYXIgPSAnYWFyY2g2NC1saW51eC1nbnUtYXInCnN0cmlwID0gJ2FhcmNoNjQtbGludXgtZ251LXN0cmlwJwpwa2djb25maWcgPSAnYWFyY2g2NC1saW51eC1nbnUtcGtnLWNvbmZpZycKW2hvc3RfbWFjaGluZV0Kc3lzdGVtID0gJ2xpbnV4JwpjcHVfZmFtaWx5ID0gJ2FhcmNoNjQnCmNwdSA9ICdhYXJjaDY0JwplbmRpYW4gPSAnbGl0dGxlJy4='
+        echo "$CROSS_RGA_B64" | base64 -d > /tmp/rockchip-vaapi-rga-cross.txt
         cd ..
 
         # 3) libmali.so (GPU) - copy from custom/blobs
@@ -248,23 +233,8 @@ EOF
           git clone --depth 1 https://github.com/jeffy-cn/libva-rockchip.git
         fi
         cd libva-rockchip
-        cat <<'EOF' > /tmp/rockchip-vaapi-va-cross.txt
-[binaries]
-c = 'aarch64-linux-gnu-gcc'
-cpp = 'aarch64-linux-gnu-g++'
-ar = 'aarch64-linux-gnu-ar'
-strip = 'aarch64-linux-gnu-strip'
-pkgconfig = 'aarch64-linux-gnu-pkg-config'
-[host_machine]
-system = 'linux'
-cpu_family = 'aarch64'
-cpu = 'aarch64'
-endian = 'little'
-[properties]
-rootprefix = '/usr'
-[built-in options]
-libdir = 'lib/aarch64-linux-gnu'
-EOF
+        CROSS_VA_B64='W2JpbmFyaWVzXQpjID0gJ2FhcmNoNjQtbGludXgtZ251LWdjYycKY3BwID0gJ2FhcmNoNjQtbGludXgtZ251LWcrKycKYXIgPSAnYWFyY2g2NC1saW51eC1nbnUtYXInCnN0cmlwID0gJ2FhcmNoNjQtbGludXgtZ251LXN0cmlwJwpwa2djb25maWcgPSAnYWFyY2g2NC1saW51eC1nbnUtcGtnLWNvbmZpZycKW2hvc3RfbWFjaGluZV0Kc3lzdGVtID0gJ2xpbnV4JwpjcHVfZmFtaWx5ID0gJ2FhcmNoNjQnCmNwdSA9ICdhYXJjaDY0JwplbmRpYW4gPSAnbGl0dGxlJwpbcHJvcGVydGllc10Kcm9vdHByZWZpeCA9ICcvdXNyJwpbYnVpbHQtaW4gb3B0aW9uc10KbGliZGlyID0gJ2xpYi9hYXJjaDY0LWxpbnV4LWdudSc='
+        echo "$CROSS_VA_B64" | base64 -d > /tmp/rockchip-vaapi-va-cross.txt
         meson setup build --prefix=/usr --libdir=lib/aarch64-linux-gnu \
             --cross-file /tmp/rockchip-vaapi-va-cross.txt 2>&1 | tail -5
         ninja -C build 2>&1 | tail -3
