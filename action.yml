@@ -117,6 +117,7 @@ runs:
         fetch-depth: 0
         clean: false
         path: os
+        sparse-checkout: false
 
     - name: "Checkout Armbian build framework"
       uses: actions/checkout@v4
