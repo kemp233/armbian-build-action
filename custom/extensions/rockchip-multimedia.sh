@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+#
+# custom/extensions/rockchip-multimedia.sh
+#
+# Rockchip RK3568 multimedia userspace for the z96a image. The kernel side is
+# already complete (linux-rockchip-rk3568-z96a-legacy config has these =y):
+#
+#   component    userspace                  device node       kernel driver
+#   -----------  -------------------------  ----------------  --------------------------
+#   MPP (VPU)    librockchip-mpp.so.1       /dev/mpp_service  CONFIG_ROCKCHIP_MPP_*
+#   RGA          librga.so (im2d API)       /dev/rga          CONFIG_VIDEO_ROCKCHIP_RGA
+#   RKNN (NPU)   librknnrt.so               /dev/rknpu        CONFIG_ROCKCHIP_RKNPU
+#   GLES         Mesa Panfrost (distro)     /dev/dri/*        CONFIG_DRM_PANFROST
+#
+# Vulkan is intentionally NOT provided: the G52 (Bifrost) is driven by Mesa
+# Panfrost, and bookworm's Mesa (22.3) has no panvk Vulkan support for v9.
+# panvk needs Mesa >= 24.2 (trixie/sid userspace). The old plan of injecting
+# the proprietary libmali blob is dead: it needs CONFIG_MALI_BIFROST, which
+# conflicts with Panfrost, and the blob in custom/blobs has no Vulkan symbols.
+#
+# Everything lands in the multiarch lib dir with headers + pkg-config files so
+# applications can compile against MPP/RGA/RKNN on-device.
+#
+# Enable: ENABLE_EXTENSIONS="rockchip-multimedia" (set by custom/config/boards/z96a-v2.conf)
+
+# Pinned upstream refs, fetched by full SHA so builds are reproducible:
+#   rockchip-linux/mpp        develop 0986d01294d5c2449c14cf13af9b740368c33967 (2026-08-26)
+#   airockchip/librga         main    2b32edcb97b601b25683e2941d888c8515da6d55 (2026-06-10, 1.10.6_[3])
+#   airockchip/rknn-toolkit2  tag v2.3.2
+declare -g EXT_RKMPP_GIT="https://github.com/rockchip-linux/mpp.git"
+declare -g EXT_RKMPP_REF="0986d01294d5c2449c14cf13af9b740368c33967"
+declare -g EXT_LIBRGA_GIT="https://github.com/airockchip/librga.git"
+declare -g EXT_LIBRGA_REF="2b32edcb97b601b25683e2941d888c8515da6d55"
+declare -g EXT_RKNN_VERSION="2.3.2"
+declare -g EXT_RKNN_BASE="https://raw.githubusercontent.com/airockchip/rknn-toolkit2/v${EXT_RKNN_VERSION}/rknpu2/runtime/Linux/librknn_api"
+
+# Fetch `repo_url` at pinned `sha` into `dest_dir` (idempotent).
+function _rockchip_multimedia_fetch_pinned() {
+	local repo_url="${1}" sha="${2}" dest_dir="${3}"
+	if [[ ! -d "${dest_dir}/.git" ]]; then
+		run_host_command_logged git init "${dest_dir}"
+		run_host_command_logged git -C "${dest_dir}" remote add origin "${repo_url}"
+	fi
+	# GitHub enables allow-reachable-SHA-in-want, so depth-1 fetch by sha works.
+	run_host_command_logged git -C "${dest_dir}" fetch --depth 1 origin "${sha}"
+	run_host_command_logged git -C "${dest_dir}" checkout --detach FETCH_HEAD
+	return 0
+}
+
+# Build host: cross toolchain + build systems for MPP.
+function add_host_dependencies__rockchip_multimedia_host_deps() {
+	declare -g EXTRA_BUILD_DEPS="${EXTRA_BUILD_DEPS} gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake ninja-build"
+}
+
+function post_family_config__rockchip_multimedia_gles_packages() {
+	[[ "${BOARDFAMILY:-}" != "rockchip-rk3568-z96a" ]] && return 0
+	display_alert "rockchip-multimedia" "adding Mesa GLES userspace packages" "info"
+	# Mesa Panfrost provides EGL/GLES3.1; libgl1-mesa-dri ships the gallium drivers.
+	add_packages_to_image libegl1 libgles2 libgl1-mesa-dri
+	if [[ "${BUILD_MINIMAL:-}" != "yes" ]]; then
+		add_packages_to_image glmark2-es2 # on-device GLES sanity check
+	fi
+	return 0
+}
+
+# Resolve the aarch64 cross-compiler prefix. Prefer the framework's own
+# toolchain (CROSS_COMPILE, possibly "ccache /path/prefix-"); fall back to the
+# apt-installed debian cross gcc, which add_host_dependencies guarantees.
+function _rockchip_multimedia_cross_prefix() {
+	local prefix="${CROSS_COMPILE:-aarch64-linux-gnu-}"
+	prefix="${prefix##* }" # drop "ccache " style prefixes
+	if [[ -z "${prefix}" ]] || ! type -p "${prefix}gcc" > /dev/null 2>&1; then
+		prefix="aarch64-linux-gnu-"
+	fi
+	echo "${prefix}"
+	return 0
+}
+
+function pre_customize_image__rockchip_multimedia_install() {
+	[[ "${BOARDFAMILY:-}" != "rockchip-rk3568-z96a" ]] && return 0
+
+	local lib_dir="usr/lib/aarch64-linux-gnu"
+	local work_dir="${SRC}/output/rockchip-multimedia"
+	local src_dir="${work_dir}/src"
+	local stage="${work_dir}/stage"
+	local prefix cross
+
+	prefix="$( _rockchip_multimedia_cross_prefix )"
+	cross="aarch64-linux-gnu" # multiarch triplet for the target libs
+
+	display_alert "rockchip-multimedia" "installing MPP/RGA/RKNN userspace (cross prefix: ${prefix})" "info"
+	mkdir -p "${stage}/${lib_dir}" "${stage}/usr/include" "${src_dir}"
+
+	# ------------------------------------------------------------------ MPP --
+	# NOTE: upstream develop names the library with an underscore:
+	#       librockchip_mpp.so.1 (Debian's packages use a hyphen; this is not Debian).
+	if [[ ! -e "${stage}/${lib_dir}/librockchip_mpp.so.1" ]]; then
+		_rockchip_multimedia_fetch_pinned "${EXT_RKMPP_GIT}" "${EXT_RKMPP_REF}" "${src_dir}/mpp"
+		# Cross toolchain file for cmake; MPP has no external deps beyond libc.
+		cat > "${src_dir}/aarch64-cross.cmake" <<- EOT
+			set(CMAKE_SYSTEM_NAME Linux)
+			set(CMAKE_SYSTEM_PROCESSOR aarch64)
+			set(CMAKE_C_COMPILER "${prefix}gcc")
+			set(CMAKE_CXX_COMPILER "${prefix}g++")
+			set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+			set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+			set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+			set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+		EOT
+		run_host_command_logged cmake -S "${src_dir}/mpp" -B "${src_dir}/mpp/build" -G Ninja \
+			"-DCMAKE_TOOLCHAIN_FILE=${src_dir}/aarch64-cross.cmake" \
+			"-DCMAKE_BUILD_TYPE=Release" \
+			"-DCMAKE_INSTALL_PREFIX=/usr" \
+			"-DCMAKE_INSTALL_LIBDIR=${lib_dir#usr/}" \
+			"-DCMAKE_INSTALL_INCLUDEDIR=include" \
+			"-DBUILD_SHARED_LIBS=ON" \
+			"-DBUILD_TEST=ON"
+		run_host_command_logged cmake --build "${src_dir}/mpp/build" -j "$(nproc)"
+		run_host_command_logged env DESTDIR="${stage}" cmake --install "${src_dir}/mpp/build"
+	else
+		display_alert "rockchip-multimedia" "MPP already staged, reusing" "debug"
+	fi
+
+	# ---------------------------------------------------------------- librga --
+	# The librga core is only buildable via AOSP (Android.bp); upstream ships
+	# prebuilt aarch64 libs + im2d headers in-repo, which is what we stage.
+	if [[ ! -e "${stage}/${lib_dir}/librga.so" ]]; then
+		_rockchip_multimedia_fetch_pinned "${EXT_LIBRGA_GIT}" "${EXT_LIBRGA_REF}" "${src_dir}/librga"
+		run_host_command_logged cp -av "${src_dir}/librga/libs/Linux/gcc-aarch64/librga.so" "${stage}/${lib_dir}/"
+		run_host_command_logged mkdir -pv "${stage}/usr/include/rga"
+		run_host_command_logged cp -av "${src_dir}/librga/include/"*.h "${src_dir}/librga/include/im2d.hpp" "${stage}/usr/include/rga/"
+		cat > "${stage}/${lib_dir}/pkgconfig/librga.pc" <<- EOT
+			prefix=/usr
+			libdir=\${prefix}/lib/${cross}
+			includedir=\${prefix}/include
+
+			Name: librga
+			Description: Rockchip RGA userspace library (im2d API)
+			Version: 1.10.6
+			Libs: -L\${libdir} -lrga
+			Cflags: -I\${includedir}/rga
+		EOT
+	else
+		display_alert "rockchip-multimedia" "librga already staged, reusing" "debug"
+	fi
+
+	# ------------------------------------------------------------------ RKNN --
+	if [[ ! -e "${stage}/${lib_dir}/librknnrt.so" ]]; then
+		run_host_command_logged mkdir -pv "${stage}/usr/include/rknn"
+		run_host_command_logged curl -fL --retry 3 -o "${stage}/${lib_dir}/librknnrt.so" \
+			"${EXT_RKNN_BASE}/aarch64/librknnrt.so"
+		for rknn_header in rknn_api.h rknn_matmul_api.h rknn_custom_op.h; do
+			run_host_command_logged curl -fL --retry 3 -o "${stage}/usr/include/rknn/${rknn_header}" \
+				"${EXT_RKNN_BASE}/include/${rknn_header}"
+		done
+		cat > "${stage}/${lib_dir}/pkgconfig/librknnrt.pc" <<- EOT
+			prefix=/usr
+			libdir=\${prefix}/lib/${cross}
+			includedir=\${prefix}/include
+
+			Name: librknnrt
+			Description: Rockchip RKNN runtime (NPU C API)
+			Version: ${EXT_RKNN_VERSION}
+			Libs: -L\${libdir} -lrknnrt
+			Cflags: -I\${includedir}/rknn
+		EOT
+	else
+		display_alert "rockchip-multimedia" "RKNN already staged, reusing" "debug"
+	fi
+
+	# --------------------------------------------- udev rules + copy to rootfs --
+	cat > "${SDCARD}/etc/udev/rules.d/60-rockchip-multimedia.rules" <<- 'EOF'
+		# Rockchip multimedia accelerators: allow the 'video' group.
+		# /dev/mpp_service - VPU via MPP   /dev/rga - 2D blitter   /dev/rknpu - NPU
+		KERNEL=="mpp_service", MODE="0660", GROUP="video"
+		KERNEL=="rga",         MODE="0660", GROUP="video"
+		KERNEL=="rknpu",       MODE="0660", GROUP="video"
+	EOF
+
+	display_alert "rockchip-multimedia" "copying staged userspace into rootfs" "info"
+	run_host_command_logged cp -av "${stage}/." "${SDCARD}/"
+	chroot_sdcard ldconfig
+
+	return 0
+}
+
+# Fail the build loudly if anything is missing - replaces the old "set +e and
+# hope" GH-action approach that silently produced broken images.
+function pre_umount_final_image__rockchip_multimedia_verify() {
+	[[ "${BOARDFAMILY:-}" != "rockchip-rk3568-z96a" ]] && return 0
+
+	local lib_dir="usr/lib/aarch64-linux-gnu"
+	local f
+	for f in \
+		"${lib_dir}/librockchip_mpp.so.1" \
+		"${lib_dir}/librga.so" \
+		"${lib_dir}/librknnrt.so" \
+		"${lib_dir}/pkgconfig/rockchip_mpp.pc" \
+		"${lib_dir}/pkgconfig/librga.pc" \
+		"${lib_dir}/pkgconfig/librknnrt.pc" \
+		"usr/include/rockchip/rk_mpi.h" \
+		"usr/include/rga/im2d.h" \
+		"usr/include/rknn/rknn_api.h" \
+		"etc/udev/rules.d/60-rockchip-multimedia.rules"; do
+		if [[ ! -e "${SDCARD}/${f}" ]]; then
+			exit_with_error "rockchip-multimedia: expected file missing from rootfs: /${f}"
+		fi
+	done
+
+	display_alert "rockchip-multimedia" "verified: MPP + librga + RKNN runtime + GLES (Panfrost) installed" "info"
+	display_alert "rockchip-multimedia" "on-device checks: mpi_dec_test, ldconfig -p | grep -E 'mpp|rga|rknn', glmark2-es2" "info"
+	return 0
+}

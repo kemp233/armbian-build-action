@@ -169,79 +169,67 @@ runs:
         # copy custom extensions
         [[ -d custom/extensions ]] && rsync -av custom/extensions/. build/extensions/
 
-    - name: "Compile and inject rockchip-vaapi"
-      if: ${{ contains(inputs.armbian_extensions, 'rockchip-vaapi') }}
+    - name: "Build Armbian image"
       shell: bash
       run: |
-        set -e
-        echo "::group::Install cross toolchain"
-        sudo apt-get update -qq
-        sudo apt-get install -y --no-install-recommends \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            meson ninja-build cmake pkg-config \
-            libdrm-dev:arm64 libva-dev:arm64 \
-            qemu-user-static binfmt-support
-        sudo update-binfmts --enable qemu-aarch64
-        echo "::endgroup::"
 
-        STAGE="$GITHUB_WORKSPACE/build/output/rockchip-vaapi"
-        rm -rf "$STAGE"
-        mkdir -p "$STAGE/usr/lib/aarch64-linux-gnu/dri" "$STAGE/src"
-
-        # 1) librockchip-mpp.so (VPU)
-        cd "$STAGE/src"
-        if [[ ! -d mpp ]]; then
-          git clone --depth 1 https://github.com/rockchip-linux/mpp.git
+        # userspace decode
+        if [[ "${{ inputs.armbian_ui }}" == minimal ]]; then
+          BUILD_DESKTOP="no"
+          BUILD_MINIMAL="yes"
+        elif [[ "${{ inputs.armbian_ui }}" == server ]]; then
+          BUILD_DESKTOP="no"
+          BUILD_MINIMAL="no"
+        else
+          BUILD_DESKTOP="yes"
+          BUILD_MINIMAL="no"
+          DESKTOP_ENVIRONMENT="${{ inputs.armbian_ui }}"
+          DESKTOP_APPGROUPS_SELECTED=""
+          DESKTOP_ENVIRONMENT_CONFIG_NAME="config_base"
         fi
-        cd mpp
-        mkdir -p build && cd build
-        cmake -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-              -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-              -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-              -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=/usr/lib/aarch64-linux-gnu \
-              -DCMAKE_BUILD_TYPE=Release -DBUILD_TEST=OFF -DBUILD_SHARED_LIBS=ON .. 2>&1 | tail -5
-        make -j"$(nproc)" 2>&1 | tail -3
-        make DESTDIR="$STAGE" install 2>&1 | tail -3
-        cd ../..
 
-        # 2) librga.so (RGA)
-        cd "$STAGE/src"
-        if [[ ! -d librga ]]; then
-          git clone --depth 1 https://github.com/airockchip/librga.git
-        fi
-        cd librga
-        CROSS_RGA_B64='W2JpbmFyaWVzXQpjID0gJ2FhcmNoNjQtbGludXgtZ251LWdjYycKY3BwID0gJ2FhcmNoNjQtbGludXgtZ251LWcrKycKYXIgPSAnYWFyY2g2NC1saW51eC1nbnUtYXInCnN0cmlwID0gJ2FhcmNoNjQtbGludXgtZ251LXN0cmlwJwpwa2djb25maWcgPSAnYWFyY2g2NC1saW51eC1nbnUtcGtnLWNvbmZpZycKW2hvc3RfbWFjaGluZV0Kc3lzdGVtID0gJ2xpbnV4JwpjcHVfZmFtaWx5ID0gJ2FhcmNoNjQnCmNwdSA9ICdhYXJjaDY0JwplbmRpYW4gPSAnbGl0dGxlJy4='
-        echo "$CROSS_RGA_B64" | base64 -d > /tmp/rockchip-vaapi-rga-cross.txt
-        cd ..
+        # go to build folder and checkout
+        cd build
+        git checkout ${{ inputs.armbian_branch }}
 
-        # 3) libmali.so (GPU) - copy from custom/blobs
-        cp -av custom/blobs/libmali.so "$STAGE/usr/lib/aarch64-linux-gnu/"
+        # execute build command
+        ./compile.sh "${{ inputs.armbian_target }}" \
+        REVISION="${{ env.ARMBIAN_VERSION }}" \
+        BOARD="${{ inputs.armbian_board }}" \
+        BRANCH="${{ inputs.armbian_kernel_branch }}" \
+        RELEASE="${{ inputs.armbian_release }}" \
+        KERNEL_CONFIGURE="no" \
+        BUILD_DESKTOP="${BUILD_DESKTOP}" \
+        BUILD_MINIMAL="${BUILD_MINIMAL}" \
+        DESKTOP_ENVIRONMENT="${DESKTOP_ENVIRONMENT}" \
+        DESKTOP_APPGROUPS_SELECTED="${DESKTOP_APPGROUPS_SELECTED}" \
+        DESKTOP_ENVIRONMENT_CONFIG_NAME="${DESKTOP_ENVIRONMENT_CONFIG_NAME}" \
+        ENABLE_EXTENSIONS="${{ inputs.armbian_extensions }}" \
+        COMPRESS_OUTPUTIMAGE="${{ inputs.armbian_compress }}" \
+        SHARE_LOG="yes" \
+        EXPERT="yes"
 
-        # 4) librknnrt.so (NPU)
-        cd "$STAGE/src"
-        if [[ ! -d rknn ]]; then
-          git clone --depth 1 https://github.com/kemp233-amlogic-s9xxx-armbian.git
-        fi
-        cd amlogic-s9xxx-armbian
-        cp -av build-armbian/armbian-files/different-files/wxy-oect/rootfs/usr/local/lib/librknnrt.so \
-               "$STAGE/usr/lib/aarch64-linux-gnu/"
-        cd ../..
+    - name: Sign
+      shell: bash
+      if: ${{ inputs.armbian_pgp_password != '' }}
+      run: |
+        echo ${{ inputs.armbian_pgp_password }} | \
+        gpg --passphrase-fd 0 --armor --detach-sign --pinentry-mode loopback --batch --yes \
+        build/output/images/*.img*.xz
 
-        # 5) libva-rockchip (rockchip_drv_video.so)
-        cd "$STAGE/src"
-        if [[ ! -d libva-rockchip ]]; then
-          git clone --depth 1 https://github.com/jeffy-cn/libva-rockchip.git
-        fi
-        cd libva-rockchip
-        CROSS_VA_B64='W2JpbmFyaWVzXQpjID0gJ2FhcmNoNjQtbGludXgtZ251LWdjYycKY3BwID0gJ2FhcmNoNjQtbGludXgtZ251LWcrKycKYXIgPSAnYWFyY2g2NC1saW51eC1nbnUtYXInCnN0cmlwID0gJ2FhcmNoNjQtbGludXgtZ251LXN0cmlwJwpwa2djb25maWcgPSAnYWFyY2g2NC1saW51eC1nbnUtcGtnLWNvbmZpZycKW2hvc3RfbWFjaGluZV0Kc3lzdGVtID0gJ2xpbnV4JwpjcHVfZmFtaWx5ID0gJ2FhcmNoNjQnCmNwdSA9ICdhYXJjaDY0JwplbmRpYW4gPSAnbGl0dGxlJwpbcHJvcGVydGllc10Kcm9vdHByZWZpeCA9ICcvdXNyJwpbYnVpbHQtaW4gb3B0aW9uc10KbGliZGlyID0gJ2xpYi9hYXJjaDY0LWxpbnV4LWdudSc='
-        echo "$CROSS_VA_B64" | base64 -d > /tmp/rockchip-vaapi-va-cross.txt
-        meson setup build --prefix=/usr --libdir=lib/aarch64-linux-gnu \
-            --cross-file /tmp/rockchip-vaapi-va-cross.txt 2>&1 | tail -5
-        ninja -C build 2>&1 | tail -3
-        ninja -C build install 2>&1 | tail -3
-        cd ..
+    - uses: ncipollo/release-action@v1
+      with:
+        tag: "${{ env.ARMBIAN_VERSION }}"
+        name: "${{ inputs.armbian_release_tittle }}"
+        artifacts: "${{ inputs.armbian_artifacts }}*"
+        allowUpdates: true
+        removeArtifacts: false
+        replacesArtifacts: true
+        makeLatest: true
+        token: "${{ inputs.armbian_token }}"
+        body: |
+          ${{ inputs.armbian_release_body }}
 
-        echo "::group::Verify staged files"
-        find "$STAGE" -name '*.so*' -type f -o -name '*.so*' -type l | head -20
-        echo "::endgroup::"
-
+branding:
+  icon: "check"
+  color: "red"
