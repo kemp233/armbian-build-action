@@ -110,34 +110,22 @@ runs:
         gpg_private_key: ${{ inputs.armbian_pgp_key }}
         passphrase: ${{ inputs.armbian_pgp_password }}
 
-    - name: "Checkout Armbian os"
-      uses: actions/checkout@v4
-      with:
-        repository: armbian/os
-        fetch-depth: 0
-        clean: false
-        path: os
-        sparse-checkout: false
-        sparse-checkout-cone-mode: false
+    - name: "Clone Armbian os (full)"
+      shell: bash
+      run: |
+        git clone --depth=1 https://github.com/armbian/os.git os
 
-    - name: "Checkout Armbian build framework"
-      uses: actions/checkout@v4
-      with:
-        repository: momokind/armbian-build
-        fetch-depth: 0
-        clean: false
-        path: build
-        sparse-checkout: false
-        sparse-checkout-cone-mode: false
+    - name: "Clone Armbian build framework (full)"
+      shell: bash
+      run: |
+        git clone --depth=1 https://github.com/momokind/armbian-build.git build
 
-    - name: "Checkout customisations"
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        clean: false
-        path: custom
-        sparse-checkout: false
-        sparse-checkout-cone-mode: false
+    - name: "Prepare customisations (from current repo)"
+      shell: bash
+      run: |
+        # The current repo is already checked out at the workspace root
+        # Copy it to custom/ for the existing rsync logic
+        cp -r "${GITHUB_WORKSPACE}" custom
 
     - shell: bash
       run: |
