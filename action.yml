@@ -169,3 +169,109 @@ runs:
         # copy custom extensions
         [[ -d custom/extensions ]] && rsync -av custom/extensions/. build/extensions/
 
+    - name: "Compile and inject rockchip-vaapi"
+      if: ${{ contains(inputs.armbian_extensions, 'rockchip-vaapi') }}
+      shell: bash
+      run: |
+        set -e
+        echo "::group::Install cross toolchain"
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            meson ninja-build cmake pkg-config \
+            libdrm-dev:arm64 libva-dev:arm64 \
+            qemu-user-static binfmt-support
+        sudo update-binfmts --enable qemu-aarch64
+        echo "::endgroup::"
+
+        STAGE="$GITHUB_WORKSPACE/build/output/rockchip-vaapi"
+        rm -rf "$STAGE"
+        mkdir -p "$STAGE/usr/lib/aarch64-linux-gnu/dri" "$STAGE/src"
+
+        # 1) librockchip-mpp.so (VPU)
+        cd "$STAGE/src"
+        if [[ ! -d mpp ]]; then
+          git clone --depth 1 https://github.com/rockchip-linux/mpp.git
+        fi
+        cd mpp
+        mkdir -p build && cd build
+        cmake -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+              -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+              -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+              -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=/usr/lib/aarch64-linux-gnu \
+              -DCMAKE_BUILD_TYPE=Release -DBUILD_TEST=OFF -DBUILD_SHARED_LIBS=ON .. 2>&1 | tail -5
+        make -j"$(nproc)" 2>&1 | tail -3
+        make DESTDIR="$STAGE" install 2>&1 | tail -3
+        cd ../..
+
+        # 2) librga.so (RGA)
+        cd "$STAGE/src"
+        if [[ ! -d librga ]]; then
+          git clone --depth 1 https://github.com/airockchip/librga.git
+        fi
+        cd librga
+        cat <<'EOF' > /tmp/rockchip-vaapi-rga-cross.txt
+[binaries]
+c = 'aarch64-linux-gnu-gcc'
+cpp = 'aarch64-linux-gnu-g++'
+ar = 'aarch64-linux-gnu-ar'
+strip = 'aarch64-linux-gnu-strip'
+pkgconfig = 'aarch64-linux-gnu-pkg-config'
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+EOF
+        meson setup build --prefix=/usr --libdir=lib/aarch64-linux-gnu \
+            --cross-file /tmp/rockchip-vaapi-rga-cross.txt 2>&1 | tail -5
+        ninja -C build 2>&1 | tail -3
+        ninja -C build install 2>&1 | tail -3
+        cd ..
+
+        # 3) libmali.so (GPU) - copy from custom/blobs
+        cp -av custom/blobs/libmali.so "$STAGE/usr/lib/aarch64-linux-gnu/"
+
+        # 4) librknnrt.so (NPU)
+        cd "$STAGE/src"
+        if [[ ! -d rknn ]]; then
+          git clone --depth 1 https://github.com/kemp233-amlogic-s9xxx-armbian.git
+        fi
+        cd amlogic-s9xxx-armbian
+        cp -av build-armbian/armbian-files/different-files/wxy-oect/rootfs/usr/local/lib/librknnrt.so \
+               "$STAGE/usr/lib/aarch64-linux-gnu/"
+        cd ../..
+
+        # 5) libva-rockchip (rockchip_drv_video.so)
+        cd "$STAGE/src"
+        if [[ ! -d libva-rockchip ]]; then
+          git clone --depth 1 https://github.com/jeffy-cn/libva-rockchip.git
+        fi
+        cd libva-rockchip
+        cat <<'EOF' > /tmp/rockchip-vaapi-va-cross.txt
+[binaries]
+c = 'aarch64-linux-gnu-gcc'
+cpp = 'aarch64-linux-gnu-g++'
+ar = 'aarch64-linux-gnu-ar'
+strip = 'aarch64-linux-gnu-strip'
+pkgconfig = 'aarch64-linux-gnu-pkg-config'
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+[properties]
+rootprefix = '/usr'
+[built-in options]
+libdir = 'lib/aarch64-linux-gnu'
+EOF
+        meson setup build --prefix=/usr --libdir=lib/aarch64-linux-gnu \
+            --cross-file /tmp/rockchip-vaapi-va-cross.txt 2>&1 | tail -5
+        ninja -C build 2>&1 | tail -3
+        ninja -C build install 2>&1 | tail -3
+        cd ..
+
+        echo "::group::Verify staged files"
+        find "$STAGE" -name '*.so*' -type f -o -name '*.so*' -type l | head -20
+        echo "::endgroup::"
+
