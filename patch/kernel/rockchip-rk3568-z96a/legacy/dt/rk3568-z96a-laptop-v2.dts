@@ -1526,7 +1526,7 @@
 					};
 				};
 
-				DCDC_REG4 {
+				vdd_npu: DCDC_REG4 {
 					regulator-always-on;
 					regulator-boot-on;
 					regulator-min-microvolt = <0x7a120>;
@@ -3322,7 +3322,7 @@
 		operating-points-v2 = <0x33a>;
 		iommus = <0x33b>;
 		status = "okay";
-		rknpu-supply = <0x33>;
+		rknpu-supply = <&vdd_npu>;
 		phandle = <0x33c>;
 	};
 
@@ -3342,7 +3342,7 @@
 	npu-opp-table {
 		compatible = "operating-points-v2";
 		mbist-vmin = <0xc96a8 0xdbba0 0xe7ef0>;
-		nvmem-cells = <0x72 0x07 0x08>;
+		nvmem-cells = <&npu_leakage 0x07 0x08>;
 		nvmem-cell-names = "leakage\0pvtm\0mbist-vmin";
 		rockchip,temp-hysteresis = <0x1388>;
 		rockchip,low-temp = <0x00>;
@@ -3585,7 +3585,7 @@
 			phandle = <0x84>;
 		};
 
-		npu-leakage@1c {
+		npu_leakage: npu-leakage@1c {
 			reg = <0x1c 0x01>;
 			phandle = <0x72>;
 		};
