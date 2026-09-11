@@ -233,6 +233,12 @@ function pre_customize_image__rockchip_multimedia_install() {
 		# headers we vendored) and a sysroot library lookup so the driver
 		# links librockchip_mpp.so.1 from the stage dir (already cross-built
 		# above).
+		# LIBS must NOT be forced here: configure's "compiler creates
+		# executables" sanity check links a test binary and would try to link
+		# -lrockchip_mpp against a lib dir that is still empty at that point,
+		# failing with "C compiler cannot create executables" (Error 77, run
+		# 34563571369). libtool picks -lrockchip_mpp up from the driver's own
+		# Makefile.am at make time, with LDFLAGS pointing at the stage dir.
 		run_host_command_logged cd "${src_dir}/libva-rkmpp" "&&" \
 			env -u PKG_CONFIG_PATH PKG_CONFIG_PATH="${va_sysroot}/usr/lib/aarch64-linux-gnu/pkgconfig" \
 			./autogen.sh \
@@ -240,8 +246,7 @@ function pre_customize_image__rockchip_multimedia_install() {
 				--prefix=/usr \
 				--with-drivers-path="/usr/${lib_dir#usr/}/dri" \
 				CPPFLAGS="-I${va_sysroot}/usr/include" \
-				LDFLAGS="-L${stage}/${lib_dir#usr/}" \
-				LIBS="-lrockchip_mpp" \
+				LDFLAGS="-L${stage}/${lib_dir}" \
 				ac_cv_func_malloc_0_nonnull=yes ac_cv_func_realloc_0_nonnull=yes
 		run_host_command_logged make -C "${src_dir}/libva-rkmpp" -j "$(nproc)"
 		run_host_command_logged mkdir -pv "${stage}/${lib_dir}/dri"
