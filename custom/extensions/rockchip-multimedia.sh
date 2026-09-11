@@ -9,8 +9,15 @@
 #   -----------  -------------------------  ----------------  --------------------------
 #   MPP (VPU)    librockchip-mpp.so.1       /dev/mpp_service  CONFIG_ROCKCHIP_MPP_*
 #   RGA          librga.so (im2d API)       /dev/rga          CONFIG_VIDEO_ROCKCHIP_RGA
-#   RKNN (NPU)   librknnrt.so               /dev/rknpu        CONFIG_ROCKCHIP_RKNPU
+#   RKNN (NPU)   librknnrt.so               /dev/dri/renderD* CONFIG_ROCKCHIP_RKNPU (DRM)
 #   GLES         Mesa Panfrost (distro)     /dev/dri/*        CONFIG_DRM_PANFROST
+#   VA-API       rockchip_drv_video.so      (wraps MPP)       via libva2 -> MPP
+#
+# The VA-API driver gives Firefox-esr/mpv hardware video decode: libva dlopens
+# rockchip_drv_video.so which links librockchip_mpp.so.1 and exports
+# __vaDriverInit_1_17 (matches bookworm's libva 2.17, whose libva.pc reports
+# VA-API Version: 1.17.0). Firefox prefs + LIBVA_DRIVER_NAME=rockchip are
+# preseeded in the image.
 #
 # Vulkan is intentionally NOT provided: the G52 (Bifrost) is driven by Mesa
 # Panfrost, and bookworm's Mesa (22.3) has no panvk Vulkan support for v9.
@@ -27,12 +34,18 @@
 #   rockchip-linux/mpp        develop 0986d01294d5c2449c14cf13af9b740368c33967 (2026-08-26)
 #   airockchip/librga         main    2b32edcb97b601b25683e2941d888c8515da6d55 (2026-06-10, 1.10.6_[3])
 #   airockchip/rknn-toolkit2  tag v2.3.2
+#   intel/libva               tag 2.17.0 b431a1a94f5e1f060f2ea2cf3169024830b7d0b1 (headers only)
+#   tarcila/libva-rkmpp       master  e69ea1368893cc15c8d59618397ab8d78df648b9 (2024-10-16)
 declare -g EXT_RKMPP_GIT="https://github.com/rockchip-linux/mpp.git"
 declare -g EXT_RKMPP_REF="0986d01294d5c2449c14cf13af9b740368c33967"
 declare -g EXT_LIBRGA_GIT="https://github.com/airockchip/librga.git"
 declare -g EXT_LIBRGA_REF="2b32edcb97b601b25683e2941d888c8515da6d55"
 declare -g EXT_RKNN_VERSION="2.3.2"
 declare -g EXT_RKNN_BASE="https://raw.githubusercontent.com/airockchip/rknn-toolkit2/v${EXT_RKNN_VERSION}/rknpu2/runtime/Linux/librknn_api"
+declare -g EXT_LIBVA_GIT="https://github.com/intel/libva.git"
+declare -g EXT_LIBVA_REF="2.17.0"
+declare -g EXT_VADRV_GIT="https://github.com/tarcila/libva-rkmpp.git"
+declare -g EXT_VADRV_REF="e69ea1368893cc15c8d59618397ab8d78df648b9"
 
 # Fetch `repo_url` at pinned `sha` into `dest_dir` (idempotent).
 function _rockchip_multimedia_fetch_pinned() {
@@ -47,16 +60,17 @@ function _rockchip_multimedia_fetch_pinned() {
 	return 0
 }
 
-# Build host: cross toolchain + build systems for MPP.
+# Build host: cross toolchain + build systems for MPP and the VA-API driver.
 function add_host_dependencies__rockchip_multimedia_host_deps() {
-	declare -g EXTRA_BUILD_DEPS="${EXTRA_BUILD_DEPS} gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake ninja-build"
+	declare -g EXTRA_BUILD_DEPS="${EXTRA_BUILD_DEPS} gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake ninja-build autoconf automake libtool pkg-config"
 }
 
 function post_family_config__rockchip_multimedia_gles_packages() {
 	[[ "${BOARDFAMILY:-}" != "rockchip-rk3568-z96a" ]] && return 0
 	display_alert "rockchip-multimedia" "adding Mesa GLES userspace packages" "info"
 	# Mesa Panfrost provides EGL/GLES3.1; libgl1-mesa-dri ships the gallium drivers.
-	add_packages_to_image libegl1 libgles2 libgl1-mesa-dri
+	# libva2/libva-drm2 runtime + vainfo for the VA-API->MPP decode path.
+	add_packages_to_image libegl1 libgles2 libgl1-mesa-dri libva2 libva-drm2 vainfo
 	if [[ "${BUILD_MINIMAL:-}" != "yes" ]]; then
 		add_packages_to_image glmark2-es2 # on-device GLES sanity check
 	fi
@@ -168,6 +182,58 @@ function pre_customize_image__rockchip_multimedia_install() {
 		display_alert "rockchip-multimedia" "RKNN already staged, reusing" "debug"
 	fi
 
+	# ---------------------------------------------------------------- VA-API --
+	# rockchip_drv_video.so: VA-API backend wrapping MPP, so Firefox/mpv get
+	# hardware video decode. Cross-built with libva 2.17 headers (headers-only,
+	# vendored from the tag) because the builder container's distro libva would
+	# emit the wrong init-symbol version. Verified in a bookworm container: the
+	# result links only librockchip_mpp.so.1 + libc and exports
+	# __vaDriverInit_1_17, matching bookworm's libva2 2.17 runtime.
+	if [[ ! -e "${stage}/${lib_dir}/dri/rockchip_drv_video.so" ]]; then
+		local va_sysroot="${work_dir}/libva-sysroot"
+		rm -rf "${va_sysroot}"
+		mkdir -p "${va_sysroot}/usr/include" "${va_sysroot}/usr/lib/aarch64-linux-gnu/pkgconfig"
+		_rockchip_multimedia_fetch_pinned "${EXT_LIBVA_GIT}" "${EXT_LIBVA_REF}" "${src_dir}/libva"
+		run_host_command_logged cp -a "${src_dir}/libva/include/va" "${va_sysroot}/usr/include/"
+		# Replicate bookworm's libva.pc: Version is the VA-API version (1.17.0),
+		# NOT the libva release version (2.17.0) - configure derives the
+		# __vaDriverInit_<maj>_<min> symbol from this field.
+		cat > "${va_sysroot}/usr/lib/aarch64-linux-gnu/pkgconfig/libva.pc" <<- EOT
+			prefix=/usr
+			exec_prefix=\${prefix}
+			libdir=\${prefix}/lib/aarch64-linux-gnu
+			includedir=\${prefix}/include
+			driverdir=\${prefix}/lib/aarch64-linux-gnu/dri
+
+			Name: libva
+			Description: Userspace Video Acceleration (VA) core interface
+			Version: 1.17.0
+			Libs: -L\${libdir} -lva
+			Cflags: -I\${includedir}
+		EOT
+
+		_rockchip_multimedia_fetch_pinned "${EXT_VADRV_GIT}" "${EXT_VADRV_REF}" "${src_dir}/libva-rkmpp"
+		# autogen.sh runs `autoreconf -v --install` then `./configure "$@"`,
+		# so flags must be passed positionally. Pass pkg-config + sysroot
+		# include (matches the libc/libdrm + VA headers we vendored) and a
+		# sysroot library lookup so the driver links librockchip_mpp.so.1
+		# from the stage dir (already cross-built above).
+		run_host_command_logged env -u PKG_CONFIG_PATH PKG_CONFIG_PATH="${va_sysroot}/usr/lib/aarch64-linux-gnu/pkgconfig" \
+			"${src_dir}/libva-rkmpp/autogen.sh" \
+				--host=aarch64-linux-gnu \
+				--prefix=/usr \
+				--with-drivers-path="/usr/${lib_dir#usr/}/dri" \
+				CPPFLAGS="-I${va_sysroot}/usr/include" \
+				LDFLAGS="-L${stage}/${lib_dir#usr/}" \
+				LIBS="-lrockchip_mpp" \
+				ac_cv_func_malloc_0_nonnull=yes ac_cv_func_realloc_0_nonnull=yes
+		run_host_command_logged make -C "${src_dir}/libva-rkmpp" -j "$(nproc)"
+		run_host_command_logged mkdir -pv "${stage}/${lib_dir}/dri"
+		run_host_command_logged cp -av "${src_dir}/libva-rkmpp/src/.libs/rockchip_drv_video.so" "${stage}/${lib_dir}/dri/"
+	else
+		display_alert "rockchip-multimedia" "VA-API driver already staged, reusing" "debug"
+	fi
+
 	# --------------------------------------------- udev rules + copy to rootfs --
 	cat > "${SDCARD}/etc/udev/rules.d/60-rockchip-multimedia.rules" <<- 'EOF'
 		# Rockchip multimedia accelerators: allow the 'video' group.
@@ -176,6 +242,35 @@ function pre_customize_image__rockchip_multimedia_install() {
 		KERNEL=="rga",         MODE="0660", GROUP="video"
 		KERNEL=="rknpu",       MODE="0660", GROUP="video"
 	EOF
+
+	# Point libva at the rockchip backend + relax the RDD sandbox that blocks
+	# VAAPI in Firefox on this stack. /etc/environment covers display-manager
+	# sessions; /etc/profile.d covers shell logins.
+	cat > "${SDCARD}/etc/profile.d/rockchip-vaapi.sh" <<- 'EOF'
+		export LIBVA_DRIVER_NAME=rockchip
+		export MOZ_DISABLE_RDD_SANDBOX=1
+	EOF
+	chmod 0755 "${SDCARD}/etc/profile.d/rockchip-vaapi.sh"
+	if ! grep -q "^LIBVA_DRIVER_NAME=" "${SDCARD}/etc/environment" 2>/dev/null; then
+		echo 'LIBVA_DRIVER_NAME=rockchip' >> "${SDCARD}/etc/environment"
+		echo 'MOZ_DISABLE_RDD_SANDBOX=1' >> "${SDCARD}/etc/environment"
+	fi
+
+	# Firefox-esr prefs (only when firefox-esr is present in this image).
+	local ff_pref_dir="${SDCARD}/usr/lib/firefox-esr/defaults/pref"
+	if [[ -d "${SDCARD}/usr/lib/firefox-esr" ]]; then
+		mkdir -p "${ff_pref_dir}"
+		cat > "${ff_pref_dir}/rockchip-vaapi.js" <<- 'EOF'
+			// Hardware video decode via VA-API -> rockchip(MPP). Set by the
+			// rockchip-multimedia build extension.
+			pref("media.ffmpeg.vaapi.enabled", true);
+			pref("media.hardware-video-decoding.force-enabled", true);
+			pref("media.rdd-ffmpeg.enabled", true);
+			pref("media.av1.enabled", false); // RK3568 has no AV1 decoder; avoid sw-AV1 on youtube
+		EOF
+	else
+		display_alert "rockchip-multimedia" "firefox-esr not in image, skipping browser prefs" "info"
+	fi
 
 	display_alert "rockchip-multimedia" "copying staged userspace into rootfs" "info"
 	run_host_command_logged cp -av "${stage}/." "${SDCARD}/"
@@ -201,13 +296,15 @@ function pre_umount_final_image__rockchip_multimedia_verify() {
 		"usr/include/rockchip/rk_mpi.h" \
 		"usr/include/rga/im2d.h" \
 		"usr/include/rknn/rknn_api.h" \
-		"etc/udev/rules.d/60-rockchip-multimedia.rules"; do
+		"${lib_dir}/dri/rockchip_drv_video.so" \
+		"etc/udev/rules.d/60-rockchip-multimedia.rules" \
+		"etc/profile.d/rockchip-vaapi.sh"; do
 		if [[ ! -e "${SDCARD}/${f}" ]]; then
 			exit_with_error "rockchip-multimedia: expected file missing from rootfs: /${f}"
 		fi
 	done
 
-	display_alert "rockchip-multimedia" "verified: MPP + librga + RKNN runtime + GLES (Panfrost) installed" "info"
-	display_alert "rockchip-multimedia" "on-device checks: mpi_dec_test, ldconfig -p | grep -E 'mpp|rga|rknn', glmark2-es2" "info"
+	display_alert "rockchip-multimedia" "verified: MPP + librga + RKNN runtime + GLES (Panfrost) + VA-API backend installed" "info"
+	display_alert "rockchip-multimedia" "on-device checks: vainfo, mpi_dec_test, glmark2-es2; firefox about:support should show HW decode" "info"
 	return 0
 }
