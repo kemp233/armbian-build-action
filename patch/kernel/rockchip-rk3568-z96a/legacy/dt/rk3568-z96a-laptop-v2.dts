@@ -3449,7 +3449,6 @@
 		cap-sd-highspeed;
 		cap-mmc-highspeed;
 		cap-sdio-irq;
-		vmmc-supply = <&vcc_1v8>;
 		keep-power-in-suspend;
 		mmc-pwrseq = <0xbc>;
 		non-removable;
@@ -7025,6 +7024,14 @@
 			};
 		};
 
+		lcd0-pwr {
+
+			lcd0-pwr {
+				rockchip,pins = <0x00 0x17 0x00 0x11f>;
+				phandle = <0x32b>;
+			};
+		};
+
 		sensor {
 
 			mh248-irq-gpio {
@@ -7449,6 +7456,8 @@
 		compatible = "mmc-pwrseq-simple";
 		clocks = <0x137 0x01>;
 		clock-names = "ext_clock";
+		pinctrl-names = "default";
+		pinctrl-0 = <0x138>;
 		reset-gpios = <0x41 0x10 0x01>;
 		phandle = <0xbc>;
 	};
@@ -7555,11 +7564,14 @@ vcc3v3-lcd0-n {
         compatible = "regulator-fixed";
         regulator-name = "vcc3v3_lcd0_n";
         regulator-boot-on;
+        regulator-always-on;
         regulator-min-microvolt = <3300000>;
         regulator-max-microvolt = <3300000>;
         enable-active-high;
         gpio = <0x41 0x17 0x00>;
         vin-supply = <0x129>;
+        pinctrl-names = "default";
+        pinctrl-0 = <0x32b>;
         phandle = <0x125>;
 };
 
