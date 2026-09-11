@@ -194,7 +194,8 @@ function pre_customize_image__rockchip_multimedia_install() {
 		rm -rf "${va_sysroot}"
 		mkdir -p "${va_sysroot}/usr/include" "${va_sysroot}/usr/lib/aarch64-linux-gnu/pkgconfig"
 		_rockchip_multimedia_fetch_pinned "${EXT_LIBVA_GIT}" "${EXT_LIBVA_REF}" "${src_dir}/libva"
-		run_host_command_logged cp -a "${src_dir}/libva/include/va" "${va_sysroot}/usr/include/"
+		# Headers live at the repo root in libva/<va> (not include/va).
+		run_host_command_logged cp -a "${src_dir}/libva/va" "${va_sysroot}/usr/include/"
 		# Replicate bookworm's libva.pc: Version is the VA-API version (1.17.0),
 		# NOT the libva release version (2.17.0) - configure derives the
 		# __vaDriverInit_<maj>_<min> symbol from this field.
