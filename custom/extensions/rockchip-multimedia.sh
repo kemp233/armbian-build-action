@@ -196,6 +196,15 @@ function pre_customize_image__rockchip_multimedia_install() {
 		_rockchip_multimedia_fetch_pinned "${EXT_LIBVA_GIT}" "${EXT_LIBVA_REF}" "${src_dir}/libva"
 		# Headers live at the repo root in libva/<va> (not include/va).
 		run_host_command_logged cp -a "${src_dir}/libva/va" "${va_sysroot}/usr/include/"
+		# The git tag ships only the va_version.h.in template; distro libva-dev
+		# packages ship it pre-generated. Generate it for VA-API 1.17.0 (= libva
+		# 2.17.0), matching the .pc Version below - rockchip_drv_video.c includes
+		# <va/va_version.h> (via va.h) and the build fails without it.
+		sed -e 's/@VA_API_MAJOR_VERSION@/1/' \
+			-e 's/@VA_API_MINOR_VERSION@/17/' \
+			-e 's/@VA_API_MICRO_VERSION@/0/' \
+			-e 's/@VA_API_VERSION@/1.17.0/' \
+			"${src_dir}/libva/va/va_version.h.in" > "${va_sysroot}/usr/include/va/va_version.h"
 		# Replicate bookworm's libva.pc: Version is the VA-API version (1.17.0),
 		# NOT the libva release version (2.17.0) - configure derives the
 		# __vaDriverInit_<maj>_<min> symbol from this field.
@@ -215,12 +224,18 @@ function pre_customize_image__rockchip_multimedia_install() {
 
 		_rockchip_multimedia_fetch_pinned "${EXT_VADRV_GIT}" "${EXT_VADRV_REF}" "${src_dir}/libva-rkmpp"
 		# autogen.sh runs `autoreconf -v --install` then `./configure "$@"`,
-		# so flags must be passed positionally. Pass pkg-config + sysroot
-		# include (matches the libc/libdrm + VA headers we vendored) and a
-		# sysroot library lookup so the driver links librockchip_mpp.so.1
-		# from the stage dir (already cross-built above).
-		run_host_command_logged env -u PKG_CONFIG_PATH PKG_CONFIG_PATH="${va_sysroot}/usr/lib/aarch64-linux-gnu/pkgconfig" \
-			"${src_dir}/libva-rkmpp/autogen.sh" \
+		# so flags must be passed positionally. Both of those are relative to
+		# the source dir (autoreconf looks for configure.ac in $PWD, configure
+		# is generated and run in-place), so cd into the source tree first -
+		# calling autogen.sh by absolute path from the framework root CWD fails
+		# with "autoreconf: error: 'configure.ac' is required" and Error 127.
+		# Pass pkg-config + sysroot include (matches the libc/libdrm + VA
+		# headers we vendored) and a sysroot library lookup so the driver
+		# links librockchip_mpp.so.1 from the stage dir (already cross-built
+		# above).
+		run_host_command_logged cd "${src_dir}/libva-rkmpp" "&&" \
+			env -u PKG_CONFIG_PATH PKG_CONFIG_PATH="${va_sysroot}/usr/lib/aarch64-linux-gnu/pkgconfig" \
+			./autogen.sh \
 				--host=aarch64-linux-gnu \
 				--prefix=/usr \
 				--with-drivers-path="/usr/${lib_dir#usr/}/dri" \
