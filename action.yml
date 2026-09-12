@@ -135,13 +135,18 @@ runs:
         [[ -d userpatches ]] && cp -r userpatches custom/
         # Framework lib file overrides (explicit single files, so we don't
         # overlay momokind's whole lib/ with this fork's diverged copy).
-        # Currently: debootstrap keyring fix in rootfs-create.sh (bookworm
-        # release key F8D2585B8783D481 is missing from Ubuntu jammy's
-        # debian-archive-keyring 2021.1.1 in the build image).
-        if [[ -f lib/functions/rootfs/rootfs-create.sh ]]; then
-          mkdir -p custom/lib/functions/rootfs
-          cp -v lib/functions/rootfs/rootfs-create.sh custom/lib/functions/rootfs/
-        fi
+        # - rootfs-create.sh: debootstrap keyring fix (bookworm release key
+        #   F8D2585B8783D481 missing from Ubuntu jammy's
+        #   debian-archive-keyring 2021.1.1 in the build image)
+        # - apt-install.sh: --allow-downgrades for local deb installs
+        #   (pinned ARMBIAN_VERSION base-files 26.5.1 vs 26.8.3 already
+        #   upgraded into the rootfs from the armbian apt repo)
+        mkdir -p custom/lib/functions/rootfs
+        for lib_file in rootfs/rootfs-create.sh rootfs/apt-install.sh; do
+          if [[ -f "lib/functions/${lib_file}" ]]; then
+            cp -v "lib/functions/${lib_file}" "custom/lib/functions/${lib_file}"
+          fi
+        done
 
     - shell: bash
       run: |
