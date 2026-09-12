@@ -47,8 +47,10 @@ jobs:
           # Makefile: object hookup
           echo 'obj-$(CONFIG_RTL8852BU) += rtl8852bu/' >> kernel-src/drivers/net/wireless/Makefile
           # sanity: ID table must cover 0bda:b832
-          grep -q '0bda:b832' "$D/supported-device-IDs" || {
+          grep -q '0bda:b832' driver-src/supported-device-IDs || {
             echo "ERROR: 0bda:b832 not in supported-device-IDs"; exit 1; }
+          grep -q '0bda:b832' "$D/os_dep/linux/usb_intf.c" || {
+            echo "ERROR: 0bda:b832 not in usb_intf.c USB ID table"; exit 1; }
 
       - name: Export format-patch
         run: |
