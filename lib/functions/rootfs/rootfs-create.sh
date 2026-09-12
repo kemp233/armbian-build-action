@@ -91,14 +91,26 @@ function create_new_rootfs_cache_via_debootstrap() {
 	# Workaround for old debian-archive-keyring in Docker image missing
 	# newer release signing keys (e.g. F8D2585B8783D481 for bookworm).
 	# Import the missing bookworm release key into the host keyring so
-	# debootstrap signature check passes.
+	# debootstrap signature check passes. Primary source: ftp-master
+	# (plain HTTPS, no keyserver dependency); keyservers are only a
+	# fallback - GHA runners have spotty keyserver reachability.
 	if ! gpg --no-default-keyring --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
 		--list-keys F8D2585B8783D481 >/dev/null 2>&1; then
 		display_alert "Importing missing bookworm release key" "F8D2585B8783D481" "info"
-		run_host_command_logged gpg --no-default-keyring \
-			--keyring /usr/share/keyrings/debian-archive-keyring.gpg \
-			--keyserver hkps://keyserver.ubuntu.com \
-			--recv-keys F8D2585B8783D481 || true
+		local keyring_key_file
+		keyring_key_file="$(mktemp)"
+		if run_host_command_logged curl -fsSL --retry 3 -o "${keyring_key_file}" \
+			"https://ftp-master.debian.org/keys/release-12.asc"; then
+			run_host_command_logged gpg --no-default-keyring \
+				--keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+				--import "${keyring_key_file}" || true
+		else
+			run_host_command_logged gpg --no-default-keyring \
+				--keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+				--keyserver hkps://keyserver.ubuntu.com \
+				--recv-keys F8D2585B8783D481 || true
+		fi
+		rm -f "${keyring_key_file}"
 	fi
 
 	deboostrap_arguments+=("${RELEASE}" "${SDCARD}/" "${debootstrap_apt_mirror}") # release, path and mirror; always last, positional arguments.

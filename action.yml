@@ -133,6 +133,15 @@ runs:
         done
         # Also copy userpatches if exists
         [[ -d userpatches ]] && cp -r userpatches custom/
+        # Framework lib file overrides (explicit single files, so we don't
+        # overlay momokind's whole lib/ with this fork's diverged copy).
+        # Currently: debootstrap keyring fix in rootfs-create.sh (bookworm
+        # release key F8D2585B8783D481 is missing from Ubuntu jammy's
+        # debian-archive-keyring 2021.1.1 in the build image).
+        if [[ -f lib/functions/rootfs/rootfs-create.sh ]]; then
+          mkdir -p custom/lib/functions/rootfs
+          cp -v lib/functions/rootfs/rootfs-create.sh custom/lib/functions/rootfs/
+        fi
 
     - shell: bash
       run: |
