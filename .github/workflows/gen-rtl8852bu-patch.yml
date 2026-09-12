@@ -1,0 +1,96 @@
+name: "Generate RTL8852BU (USB WiFi) kernel driver patch"
+
+# Builds the 0002-wifi-add-rtl8852bu-driver-for-z96a.patch board patch on the
+# runner (no local machine needed): assembles morrownr/rtl8852bu-20250826 into
+# a kemp233/linux-rockchip rk-6.1-rkr5.1 tree, wires Kconfig/Makefile, exports
+# a format-patch, verifies it applies cleanly to the pristine tree, then
+# commits it together with the kernel config change and pushes.
+#
+# The dongle this covers is the Realtek USB WiFi that enumerates first as
+# 0bda:1a2b (driver-CD mode) and re-enumerates as 0bda:b832 after eject.
+# Firmware is embedded in the driver source (CONFIG_FILE_FWIMG=n), no .bin
+# files needed. Board-SDIO RTL8822CS driver is unaffected (separate patch).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    name: "Generate + push 0002-rtl8852bu patch"
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout repo (patch destination)
+        uses: actions/checkout@v4
+
+      - name: Clone kernel + driver sources
+        run: |
+          git clone --depth 1 --branch rk-6.1-rkr5.1 \
+            https://github.com/kemp233/linux-rockchip.git kernel-src
+          git clone --depth 1 \
+            https://github.com/morrownr/rtl8852bu-20250826.git driver-src
+
+      - name: Assemble driver into kernel tree
+        run: |
+          set -euo pipefail
+          D=kernel-src/drivers/net/wireless/rtl8852bu
+          mkdir -p "$D"
+          cp -a driver-src/Kconfig driver-src/Makefile driver-src/common.mk \
+                driver-src/core driver-src/include driver-src/os_dep \
+                driver-src/phl driver-src/platform "$D/"
+          # Kconfig: anchor on the same line armbian's 88x2bu integration uses
+          sed -i '/source "drivers\/net\/wireless\/ti\/Kconfig"/a source "drivers/net/wireless/rtl8852bu/Kconfig"' \
+            kernel-src/drivers/net/wireless/Kconfig
+          # Makefile: object hookup
+          echo 'obj-$(CONFIG_RTL8852BU) += rtl8852bu/' >> kernel-src/drivers/net/wireless/Makefile
+          # sanity: ID table must cover 0bda:b832
+          grep -q '0bda:b832' "$D/supported-device-IDs" || {
+            echo "ERROR: 0bda:b832 not in supported-device-IDs"; exit 1; }
+
+      - name: Export format-patch
+        run: |
+          set -euo pipefail
+          cd kernel-src
+          git config user.name "openclaw-bot"
+          git config user.email "bot@openclaw.local"
+          git add -A drivers/net/wireless
+          test -n "$(git status --porcelain)"
+          git commit -q \
+            -m "wifi: add RTL8852BU (USB) driver for z96a boards" \
+            -m "morrownr/rtl8852bu-20250826 snapshot. Firmware is embedded in the driver source (CONFIG_FILE_FWIMG=n); USB ID table covers 0bda:b832." \
+            --author="Kemp <kemp@kemp233>"
+          git format-patch -1 --stdout --zero-commit \
+            > ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
+          ls -la ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
+          grep -q 'config RTL8852BU' ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
+          grep -q 'drivers/net/wireless/rtl8852bu/Kconfig' ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
+
+      - name: Verify patch applies to pristine tree
+        run: |
+          set -euo pipefail
+          cd kernel-src
+          git reset --hard HEAD~1 >/dev/null
+          git apply --check ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
+          echo "OK: patch applies cleanly to pristine rk-6.1-rkr5.1"
+
+      - name: Enable CONFIG_RTL8852BU in kernel config
+        run: |
+          set -euo pipefail
+          CFG=custom/config/kernel/linux-rockchip-rk3568-z96a-legacy.config
+          grep -q '^CONFIG_RTL8852BU=' "$CFG" || \
+            sed -i '/^CONFIG_RTL8822BU=m/a CONFIG_RTL8852BU=m' "$CFG"
+          grep -n 'CONFIG_RTL8852B' "$CFG"
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "openclaw-bot"
+          git config user.email "bot@openclaw.local"
+          git add patch/kernel/rockchip-rk3568-z96a/legacy/0002-wifi-add-rtl8852bu-driver-for-z96a.patch \
+                  custom/config/kernel/linux-rockchip-rk3568-z96a-legacy.config
+          git commit -m "z96a: add RTL8852BU (USB) driver patch for 0bda:b832 dongle" \
+                     -m "Generated on Actions from morrownr/rtl8852bu-20250826 against kemp233/linux-rockchip rk-6.1-rkr5.1."
+          git push
