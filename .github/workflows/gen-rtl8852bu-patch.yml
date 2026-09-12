@@ -70,7 +70,11 @@ jobs:
             -m "wifi: add RTL8852BU (USB) driver for z96a boards" \
             -m "morrownr/rtl8852bu-20250826 snapshot. Firmware is embedded in the driver source (CONFIG_FILE_FWIMG=n); USB ID table covers 0bda:b832." \
             --author="Kemp <kemp@kemp233>"
-          git format-patch -1 --stdout --zero-commit \
+          # --unified=1: the two wiring hunks (Kconfig/Makefile) keep only 1
+          # line of context so the drivers-harness 88x2bu insert (applied
+          # earlier, 2 lines away in Kconfig / at Makefile EOF) can never
+          # break their context. New-file hunks are unaffected.
+          git format-patch -1 --stdout --zero-commit --unified=1 \
             > ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
           ls -la ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
           grep -q 'config RTL8852BU' ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
@@ -83,6 +87,14 @@ jobs:
           git reset --hard HEAD~1 >/dev/null
           git apply --check ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
           echo "OK: patch applies cleanly to pristine rk-6.1-rkr5.1"
+          # simulate the drivers-harness 88x2bu interference (it applies
+          # BEFORE board patches in real builds) and re-check
+          git reset --hard HEAD~1 >/dev/null
+          sed -i '/source "drivers\/net\/wireless\/ti\/Kconfig"/a source "drivers\/net\/wireless\/rtl88x2bu\/Kconfig"' \
+            drivers/net/wireless/Kconfig
+          echo 'obj-$(CONFIG_RTL8822BU) += rtl88x2bu/' >> drivers/net/wireless/Makefile
+          git apply --check ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
+          echo "OK: patch also applies after harness 88x2bu wiring"
 
       - name: Enable CONFIG_RTL8852BU in kernel config
         run: |
