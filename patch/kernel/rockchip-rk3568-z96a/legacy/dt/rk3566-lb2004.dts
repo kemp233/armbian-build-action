@@ -357,6 +357,9 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <500000>;
 				regulator-max-microvolt = <1350000>;
+				/* init voltage + force-PWM mode per original Android DTB */
+				regulator-init-microvolt = <900000>;
+				regulator-initial-mode = <2>;
 				regulator-name = "vdd_gpu";
 				regulator-state-mem {
 					regulator-off-in-suspend;
@@ -377,6 +380,9 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <500000>;
 				regulator-max-microvolt = <1350000>;
+				/* init voltage + force-PWM mode per original Android DTB */
+				regulator-init-microvolt = <900000>;
+				regulator-initial-mode = <2>;
 				regulator-name = "vdd_npu";
 				regulator-state-mem {
 					regulator-off-in-suspend;
@@ -575,9 +581,47 @@
 };
 #endif
 
-/* GPU */
+/* GPU - mali-supply per original Android DTB (RK809 DCDC_REG2, phandle 0x65);
+ * without it GPU DVFS has no regulator to switch. */
 &gpu {
+	mali-supply = <&vdd_gpu>;
 	status = "okay";
+};
+
+/* GPU OPP: flat voltages lifted from the original Android DTB (opp-table2).
+ * The shipped table runs one step below the BSP default L0 values, so the
+ * BSP L0-L3 leakage bins are deleted and flat voltages set. */
+&gpu_opp_table {
+	opp-200000000 {
+		opp-microvolt = <825000 825000 1000000>;
+	};
+	opp-300000000 {
+		opp-microvolt = <825000 825000 1000000>;
+	};
+	opp-400000000 {
+		opp-microvolt = <825000 825000 1000000>;
+	};
+	opp-600000000 {
+		opp-microvolt = <825000 825000 1000000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+	};
+	opp-700000000 {
+		opp-microvolt = <900000 900000 1000000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+	};
+	opp-800000000 {
+		opp-microvolt = <950000 950000 1000000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+	};
 };
 
 #if 0 /* rk-6.1-rkr6.1 dtsi labels NPU as rknpu, not npu */
@@ -587,10 +631,107 @@
 };
 #else
 &rknpu {
+	/* rknpu-supply per original Android DTB = vdd_npu (RK809 DCDC_REG4) */
+	rknpu-supply = <&vdd_npu>;
 	memory-region = <&rknpu_mem>;
 	status = "okay";
 };
 #endif
+
+/* NPU OPP: flat voltages from the original Android DTB (npu-opp-table);
+ * 1GHz OPP stays disabled as shipped, 900MHz is the top enabled point. */
+&npu_opp_table {
+	opp-200000000 {
+		opp-microvolt = <825000 825000 1000000>;
+	};
+	opp-300000000 {
+		opp-microvolt = <825000 825000 1000000>;
+	};
+	opp-400000000 {
+		opp-microvolt = <825000 825000 1000000>;
+	};
+	opp-600000000 {
+		opp-microvolt = <825000 825000 1000000>;
+	};
+	opp-700000000 {
+		opp-microvolt = <850000 850000 1000000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+	};
+	opp-800000000 {
+		opp-microvolt = <875000 875000 1000000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+	};
+	opp-900000000 {
+		opp-microvolt = <925000 925000 1000000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+	};
+	opp-1000000000 {
+		opp-microvolt = <1000000 1000000 1000000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+		/delete-property/ opp-supported-hw;
+	};
+};
+
+/* CPU OPP: flat voltages from the original Android DTB cpu0-opp-table
+ * (825mV up to 1104MHz, then 925/1000/1050mV at 1416/1608/1800MHz). */
+&cpu0_opp_table {
+	opp-408000000 {
+		opp-microvolt = <825000 825000 1150000>;
+		/delete-property/ opp-supported-hw;
+	};
+	opp-600000000 {
+		opp-microvolt = <825000 825000 1150000>;
+		/delete-property/ opp-supported-hw;
+	};
+	opp-816000000 {
+		opp-microvolt = <825000 825000 1150000>;
+		/delete-property/ opp-supported-hw;
+	};
+	opp-1104000000 {
+		opp-microvolt = <825000 825000 1150000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+		/delete-property/ opp-supported-hw;
+	};
+	opp-1416000000 {
+		opp-microvolt = <925000 925000 1150000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+		/delete-property/ opp-supported-hw;
+	};
+	opp-1608000000 {
+		opp-microvolt = <1000000 1000000 1150000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+		/delete-property/ opp-supported-hw;
+	};
+	opp-1800000000 {
+		opp-microvolt = <1050000 1050000 1150000>;
+		/delete-property/ opp-microvolt-L0;
+		/delete-property/ opp-microvolt-L1;
+		/delete-property/ opp-microvolt-L2;
+		/delete-property/ opp-microvolt-L3;
+		/delete-property/ opp-supported-hw;
+	};
+};
 
 &bus_npu {
 	rockchip,busfreq-policy = "clkfreq";
