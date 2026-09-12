@@ -820,15 +820,48 @@
 &pwm16_32k { status = "disabled"; };
 #endif
 
-#if 0 /* rk-6.1-rkr6.1 dtsi lacks &adc_keys / &gpio_keys */
-&adc_keys {
-	status = "disabled";
+/* ADC keypad on SARADC ch0 - factory 4-key ladder from the original
+ * Android DT (adc-keys, poll 100ms, keyup 1.8V). The same physical button
+ * is the Recovery/Loader key: the U-Boot DTB samples ch0 at boot with
+ * press-threshold 9uV (~ground) => rockchip download/maskrom mode;
+ * in-kernel it reports as KEY_VOLUMEUP. */
+&saradc {
+	status = "okay";
 };
 
-&gpio_keys {
-	status = "disabled";
+/ {
+	adc-keys {
+		compatible = "adc-keys";
+		io-channels = <&saradc 0>;
+		io-channel-names = "buttons";
+		keyup-threshold-microvolt = <1800000>;
+		poll-interval = <100>;
+
+		vol-up-key {
+			label = "volume up";
+			linux,code = <KEY_VOLUMEUP>;
+			press-threshold-microvolt = <1750>;
+		};
+
+		vol-down-key {
+			label = "volume down";
+			linux,code = <KEY_VOLUMEDOWN>;
+			press-threshold-microvolt = <297500>;
+		};
+
+		brightness-up-key {
+			label = "menu";
+			linux,code = <KEY_BRIGHTNESSUP>;
+			press-threshold-microvolt = <1450000>;
+		};
+
+		back-key {
+			label = "back";
+			linux,code = <KEY_BRIGHTNESSDOWN>;
+			press-threshold-microvolt = <1650000>;
+		};
+	};
 };
-#endif
 
 /* Pinctrl */
 &pinctrl {
