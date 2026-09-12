@@ -198,7 +198,11 @@
 	status = "okay";
 };
 
-/* GMAC1 Ethernet */
+/* GMAC1 Ethernet - config per original Android DT (ethernet@fe010000):
+ * RGMII with external 125MHz clkin, gmac1m1 pin mux (NOT m0), PHY reset on
+ * GPIO4 PC2, generic clause-22 PHY at mdio address 0, tx_delay 0x4f /
+ * rx_delay 0x2d. Previous port used the m0 mux and PA3 reset pin, which is
+ * why the wired NIC never came up. */
 &gmac1 {
 	phy-mode = "rgmii";
 	clock_in_out = "input";
@@ -206,7 +210,11 @@
 	assigned-clocks = <&cru SCLK_GMAC1_RX_TX>, <&cru SCLK_GMAC1>;
 	assigned-clock-parents = <&cru SCLK_GMAC1_RGMII_SPEED>, <&gmac1_clkin>;
 
-	snps,reset-gpio = <&gpio4 RK_PA3 GPIO_ACTIVE_LOW>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&gmac1m1_miim &gmac1m1_tx_bus2 &gmac1m1_rx_bus2
+		     &gmac1m1_rgmii_clk &gmac1m1_rgmii_bus &gmac1m1_clkinout>;
+
+	snps,reset-gpio = <&gpio4 RK_PC2 GPIO_ACTIVE_LOW>;
 	snps,reset-active-low;
 	snps,reset-delays-us = <0 20000 100000>;
 
@@ -214,13 +222,12 @@
 	rx_delay = <0x2d>;
 
 	phy-handle = <&rgmii_phy1>;
-	phy-supply = <&vcc_3v3>;
 	status = "okay";
 };
 
 &mdio1 {
 	rgmii_phy1: ethernet-phy@0 {
-		compatible = "ethernet-phy-id7b74.4411", "ethernet-phy-ieee802.3-c22";
+		compatible = "ethernet-phy-ieee802.3-c22";
 		reg = <0>;
 	};
 };
@@ -886,35 +893,8 @@
 		};
 	};
 
-	gmac1 {
-		gmac1m0_miim: gmac1m0-miim {
-			rockchip,pins = <3 RK_PB0 4 &pcfg_pull_none>,
-					<3 RK_PB1 4 &pcfg_pull_none>;
-		};
-		gmac1m0_tx_bus2: gmac1m0-tx-bus2 {
-			rockchip,pins = <3 RK_PB4 4 &pcfg_pull_none>,
-					<3 RK_PB5 4 &pcfg_pull_none>,
-					<3 RK_PB6 4 &pcfg_pull_none>;
-		};
-		gmac1m0_rx_bus2: gmac1m0-rx-bus2 {
-			rockchip,pins = <3 RK_PA6 4 &pcfg_pull_none>,
-					<3 RK_PA7 4 &pcfg_pull_none>,
-					<3 RK_PB2 4 &pcfg_pull_none>;
-		};
-		gmac1m0_rgmii_clk: gmac1m0-rgmii-clk {
-			rockchip,pins = <3 RK_PA5 4 &pcfg_pull_none>,
-					<3 RK_PB3 4 &pcfg_pull_none>;
-		};
-		gmac1m0_clkinout: gmac1m0-clkinout {
-			rockchip,pins = <3 RK_PA4 4 &pcfg_pull_none>;
-		};
-		gmac1m0_rgmii_bus: gmac1m0-rgmii-bus {
-			rockchip,pins = <3 RK_PA2 4 &pcfg_pull_none>,
-					<3 RK_PA3 4 &pcfg_pull_none>,
-					<3 RK_PA0 4 &pcfg_pull_none>,
-					<3 RK_PA1 4 &pcfg_pull_none>;
-		};
-	};
+	/* gmac1: board uses the m1 mux (factory Android DT); the m0/m1 pin
+	 * groups ship in rk3568-pinctrl.dtsi, referenced from &gmac1 above. */
 
 	/* pcie_reset_h: extracted so &pcie2x1's pinctrl-0 resolves */
 	pcie {
