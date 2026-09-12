@@ -48,9 +48,10 @@ jobs:
           # are untouched by the harness, so this context is stable.
           sed -i '/source "drivers\/net\/wireless\/zydas\/Kconfig"/a source "drivers/net/wireless/rtl8852bu/Kconfig"' \
             kernel-src/drivers/net/wireless/Kconfig
-          # Makefile: insert after the WL_ROCKCHIP line (mid-file), NOT at
-          # EOF - the harness patch appends its obj- line at EOF.
-          sed -i '/obj-.*CONFIG_WL_ROCKCHIP.*rockchip_wlan\//a obj-$(CONFIG_RTL8852BU) += rtl8852bu/' \
+          # Makefile: insert after the VIRT_WIFI line - interior anchor, so
+          # neither the harness's EOF append nor EOF newline quirks can break
+          # the hunk (U1 context = virt_wifi / rtl8852bu / rockchip_wlan).
+          sed -i '/obj-.*CONFIG_VIRT_WIFI/a obj-$(CONFIG_RTL8852BU) += rtl8852bu/' \
             kernel-src/drivers/net/wireless/Makefile
           # sanity: ID table must cover 0bda:b832
           grep -q '0bda:b832' driver-src/supported-device-IDs || {
