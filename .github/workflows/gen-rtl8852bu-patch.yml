@@ -84,12 +84,13 @@ jobs:
         run: |
           set -euo pipefail
           cd kernel-src
-          git reset --hard HEAD~1 >/dev/null
+          PRISTINE=$(git rev-parse HEAD~1)
+          git reset --hard "$PRISTINE" >/dev/null
           git apply --check ../0002-wifi-add-rtl8852bu-driver-for-z96a.patch
           echo "OK: patch applies cleanly to pristine rk-6.1-rkr5.1"
           # simulate the drivers-harness 88x2bu interference (it applies
           # BEFORE board patches in real builds) and re-check
-          git reset --hard HEAD~1 >/dev/null
+          git reset --hard "$PRISTINE" >/dev/null
           sed -i '/source "drivers\/net\/wireless\/ti\/Kconfig"/a source "drivers\/net\/wireless\/rtl88x2bu\/Kconfig"' \
             drivers/net/wireless/Kconfig
           echo 'obj-$(CONFIG_RTL8822BU) += rtl88x2bu/' >> drivers/net/wireless/Makefile
