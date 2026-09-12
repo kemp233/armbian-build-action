@@ -81,6 +81,10 @@ jobs:
       - name: Enable CONFIG_RTL8852BU in kernel config
         run: |
           set -euo pipefail
+          # move generated patch into the board patch directory
+          mv 0002-wifi-add-rtl8852bu-driver-for-z96a.patch \
+             patch/kernel/rockchip-rk3568-z96a/legacy/
+          ls -la patch/kernel/rockchip-rk3568-z96a/legacy/0002-*.patch
           CFG=custom/config/kernel/linux-rockchip-rk3568-z96a-legacy.config
           grep -q '^CONFIG_RTL8852BU=' "$CFG" || \
             sed -i '/^CONFIG_RTL8822BU=m/a CONFIG_RTL8852BU=m' "$CFG"
