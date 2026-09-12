@@ -86,8 +86,14 @@ jobs:
              patch/kernel/rockchip-rk3568-z96a/legacy/
           ls -la patch/kernel/rockchip-rk3568-z96a/legacy/0002-*.patch
           CFG=custom/config/kernel/linux-rockchip-rk3568-z96a-legacy.config
-          grep -q '^CONFIG_RTL8852BU=' "$CFG" || \
-            sed -i '/^CONFIG_RTL8822BU=m/a CONFIG_RTL8852BU=m' "$CFG"
+          # flip the "not set" line if present, else append
+          if grep -q '^# CONFIG_RTL8852BU is not set$' "$CFG"; then
+            sed -i 's|^# CONFIG_RTL8852BU is not set$|CONFIG_RTL8852BU=m|' "$CFG"
+          elif ! grep -q '^CONFIG_RTL8852BU=' "$CFG"; then
+            echo 'CONFIG_RTL8852BU=m' >> "$CFG"
+          fi
+          grep -q '^CONFIG_RTL8852BU=m$' "$CFG" || {
+            echo "ERROR: CONFIG_RTL8852BU=m not set"; exit 1; }
           grep -n 'CONFIG_RTL8852B' "$CFG"
 
       - name: Commit and push
