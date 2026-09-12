@@ -41,11 +41,17 @@ jobs:
           cp -a driver-src/Kconfig driver-src/Makefile driver-src/common.mk \
                 driver-src/core driver-src/include driver-src/os_dep \
                 driver-src/phl driver-src/platform "$D/"
-          # Kconfig: anchor on the same line armbian's 88x2bu integration uses
-          sed -i '/source "drivers\/net\/wireless\/ti\/Kconfig"/a source "drivers/net/wireless/rtl8852bu/Kconfig"' \
+          # Kconfig: insert AFTER the zydas line. The drivers-harness patch
+          # (driver_rtl88x2bu) inserts its own source line right after the
+          # ti/Kconfig anchor and applies BEFORE board patches - anchoring on
+          # ti would make our hunk fail with "Hunk FAILED". zydas/quantenna
+          # are untouched by the harness, so this context is stable.
+          sed -i '/source "drivers\/net\/wireless\/zydas\/Kconfig"/a source "drivers/net/wireless/rtl8852bu/Kconfig"' \
             kernel-src/drivers/net/wireless/Kconfig
-          # Makefile: object hookup
-          echo 'obj-$(CONFIG_RTL8852BU) += rtl8852bu/' >> kernel-src/drivers/net/wireless/Makefile
+          # Makefile: insert after the WL_ROCKCHIP line (mid-file), NOT at
+          # EOF - the harness patch appends its obj- line at EOF.
+          sed -i '/obj-.*CONFIG_WL_ROCKCHIP.*rockchip_wlan\//a obj-$(CONFIG_RTL8852BU) += rtl8852bu/' \
+            kernel-src/drivers/net/wireless/Makefile
           # sanity: ID table must cover 0bda:b832
           grep -q '0bda:b832' driver-src/supported-device-IDs || {
             echo "ERROR: 0bda:b832 not in supported-device-IDs"; exit 1; }
