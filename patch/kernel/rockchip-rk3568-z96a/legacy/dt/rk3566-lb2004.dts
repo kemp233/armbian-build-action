@@ -630,6 +630,26 @@
 	status = "okay";
 };
 
+/* WiFi module power enables - factory DT drives both high; without
+ * them the RTL8822CS never gets 3.3V and never appears on SDIO */
+&gpio2 {
+	wifi-en-hog {
+		gpio-hog;
+		gpios = <RK_PC6 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wifi-en";
+	};
+};
+
+&gpio3 {
+	wifi-pwren-hog {
+		gpio-hog;
+		gpios = <RK_PB0 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wifi-pwren";
+	};
+};
+
 &wireless_wlan {
 	wifi_chip_type = "rtl8822cs";
 	WIFI,host_wake_irq = <&gpio2 RK_PB2 GPIO_ACTIVE_HIGH>;
