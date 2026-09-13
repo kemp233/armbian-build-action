@@ -53,6 +53,17 @@ jobs:
           # the hunk (U1 context = virt_wifi / rtl8852bu / rockchip_wlan).
           sed -i '/obj-.*CONFIG_VIRT_WIFI/a obj-$(CONFIG_RTL8852BU) += rtl8852bu/' \
             kernel-src/drivers/net/wireless/Makefile
+          # In-tree builds never include platform/*.mk (DRV_PATH/TopDIR point
+          # at the kernel tree), so the default out-of-tree platform flags
+          # are missing -> "#error Must be LITTLE/BIG Endian Host" and
+          # incomplete cfg80211 ft_event. Inject them into the kbuild pass:
+          sed -i '/include \$$(src)\/common\.mk/a\
+EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN\
+EXTRA_CFLAGS += -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT\
+EXTRA_CFLAGS += -DCONFIG_RADIO_WORK\
+OBJS += platform/platform_ops.o' \
+            "$D/Makefile"
+          grep -q 'CONFIG_LITTLE_ENDIAN' "$D/Makefile"
           # sanity: ID table must cover 0bda:b832
           grep -q '0bda:b832' driver-src/supported-device-IDs || {
             echo "ERROR: 0bda:b832 not in supported-device-IDs"; exit 1; }
