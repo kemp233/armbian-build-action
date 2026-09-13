@@ -554,39 +554,45 @@
 	status = "okay";
 };
 
-/* USB - usb2phy0 node exists; host/otg sub-ports need u2phy0_* label, not usb2phy0_* */
-&usb2phy0 {
-	status = "okay";
-};
-
-#if 0 /* rk-6.1-rkr6.1 dtsi labels these u2phy0_host / u2phy0_otg (not usb2phy0_host/_otg) */
-&usb2phy0_host {
-	status = "okay";
-};
-
-&usb2phy0_otg {
-	status = "okay";
-};
-#else
-&u2phy0_host {
-	status = "okay";
-};
-
-&u2phy0_otg {
-	status = "okay";
-};
-#endif
-
+/* USB - factory Android enables ALL controllers. The BSP dtsi wires
+ * usb_host0_ehci/ohci to u2phy1_otg (wrong, and its "utmi" clock comes
+ * from usb2phy1) - override to u2phy0_host + usb2phy0 clock so the first
+ * USB2 port actually enumerates. Supplies per factory DT. */
 &usb_host0_ehci {
+	phys = <&u2phy0_host>;
+	clocks = <&cru HCLK_USB2HOST0>, <&cru HCLK_USB2HOST0_ARB>,
+		 <&cru PCLK_USB>, <&usb2phy0>;
 	status = "okay";
 };
 
 &usb_host0_ohci {
+	phys = <&u2phy0_host>;
+	clocks = <&cru HCLK_USB2HOST0>, <&cru HCLK_USB2HOST0_ARB>,
+		 <&cru PCLK_USB>, <&usb2phy0>;
 	status = "okay";
 };
 
-#if 0 /* rk-6.1-rkr6.1 dtsi lacks &usb_host1_xhci (it's &usbdrd_dwc3 instead) */
-&usb_host1_xhci {
+&usb_host1_ehci {
+	phys = <&u2phy1_host>;
+	status = "okay";
+};
+
+&usb_host1_ohci {
+	phys = <&u2phy1_host>;
+	status = "okay";
+};
+
+&usb2phy0 {
+	status = "okay";
+};
+
+&u2phy0_host {
+	phy-supply = <&vcc5v0_host>;
+	status = "okay";
+};
+
+&u2phy0_otg {
+	vbus-supply = <&vcc5v0_otg>;
 	status = "okay";
 };
 
@@ -594,14 +600,43 @@
 	status = "okay";
 };
 
-&usb2phy1_host {
+&u2phy1_host {
+	phy-supply = <&vcc5v0_host>;
 	status = "okay";
 };
 
-&usb2phy1_otg {
+&u2phy1_otg {
+	phy-supply = <&vcc5v0_host>;
 	status = "okay";
 };
-#endif
+
+/* USB3 OTG (Type-C) - factory runs it HS-only off usb2phy0_otg */
+&usbdrd30 {
+	status = "okay";
+};
+
+&usbdrd_dwc3 {
+	phys = <&u2phy0_otg>;
+	phy-names = "usb2-phy";
+	maximum-speed = "high-speed";
+	status = "okay";
+};
+
+/* SDIO WiFi RTL8822CS - factory pins: WL_REG_ON = GPIO2_B1 (pin 9),
+ * HOST_WAKE = GPIO2_B2 (pin 10). The Z96A pins (GPIO3_A1/A2) do not
+ * exist on this board, so the module was never powered up. */
+&sdio_pwrseq {
+	reset-gpios = <&gpio2 RK_PB1 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+&wireless_wlan {
+	wifi_chip_type = "rtl8822cs";
+	WIFI,host_wake_irq = <&gpio2 RK_PB2 GPIO_ACTIVE_HIGH>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&wifi_enable_h>;
+	status = "okay";
+};
 
 /* GPU - mali-supply per original Android DTB (RK809 DCDC_REG2, phandle 0x65);
  * without it GPU DVFS has no regulator to switch. */
@@ -895,10 +930,11 @@
 
 	wireless-wlan {
 		wifi_enable_h: wifi-enable-h {
-			rockchip,pins = <3 RK_PA1 RK_FUNC_GPIO &pcfg_pull_none>;
+			/* WL_REG_ON = GPIO2_B1 per factory DT (was GPIO3_A1/z96a) */
+			rockchip,pins = <2 RK_PB1 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 		wifi_host_wake_irq: wifi-host-wake-irq {
-			rockchip,pins = <3 RK_PA2 RK_FUNC_GPIO &pcfg_pull_down>;
+			rockchip,pins = <2 RK_PB2 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
 	};
 
