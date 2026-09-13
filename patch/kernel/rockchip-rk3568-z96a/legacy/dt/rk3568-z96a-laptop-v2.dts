@@ -922,7 +922,10 @@
 			compatible = "snps,dwc3";
 			reg = <0x00 0xfcc00000 0x00 0x400000>;
 			interrupts = <0x00 0xa9 0x04>;
-			dr_mode = "host";
+			/* otg + extcon(usb2phy0): C 口自动切换角色
+			 * (插设备=host, 插充电器/电脑=device), 出厂行为 */
+			extcon = <0x28>;
+			dr_mode = "otg";
 			phys = <0x28 0x24 0x04>;
 			phy-names = "usb2-phy\0usb3-phy";
 			phy_type = "utmi_wide";
