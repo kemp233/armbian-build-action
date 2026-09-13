@@ -7564,7 +7564,10 @@ vcc3v3-lcd0-n {
         compatible = "regulator-fixed";
         regulator-name = "vcc3v3_lcd0_n";
         regulator-boot-on;
-        regulator-always-on;
+        /* always-on REMOVED: it blocked the backlight power-off at suspend
+         * (the backlight power-supply points here; the always-on constraint
+         * made the regulator framework refuse to disable it at suspend).
+         * The board WiFi that once shared this rail is no longer used. */
         regulator-min-microvolt = <3300000>;
         regulator-max-microvolt = <3300000>;
         enable-active-high;
