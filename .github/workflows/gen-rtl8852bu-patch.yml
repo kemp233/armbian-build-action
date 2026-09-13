@@ -56,13 +56,12 @@ jobs:
           # In-tree builds never include platform/*.mk (DRV_PATH/TopDIR point
           # at the kernel tree), so the default out-of-tree platform flags
           # are missing -> "#error Must be LITTLE/BIG Endian Host" and
-          # incomplete cfg80211 ft_event. Inject them into the kbuild pass:
-          sed -i '/include \$$(src)\/common\.mk/a\
-EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN\
-EXTRA_CFLAGS += -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT\
-EXTRA_CFLAGS += -DCONFIG_RADIO_WORK\
-OBJS += platform/platform_ops.o' \
-            "$D/Makefile"
+          # incomplete cfg80211 ft_event. Inject them into the kbuild pass
+          # (each line after the previous, right below common.mk include):
+          sed -i '/include \$$(src)\/common\.mk/a EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN' "$D/Makefile"
+          sed -i '/EXTRA_CFLAGS += -DCONFIG_LITTLE_ENDIAN/a EXTRA_CFLAGS += -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT' "$D/Makefile"
+          sed -i '/DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT/a EXTRA_CFLAGS += -DCONFIG_RADIO_WORK' "$D/Makefile"
+          sed -i '/EXTRA_CFLAGS += -DCONFIG_RADIO_WORK/a OBJS += platform/platform_ops.o' "$D/Makefile"
           grep -q 'CONFIG_LITTLE_ENDIAN' "$D/Makefile"
           # sanity: ID table must cover 0bda:b832
           grep -q '0bda:b832' driver-src/supported-device-IDs || {
